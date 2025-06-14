@@ -4,7 +4,6 @@ set -euo pipefail
 SCRIPT_DIR="/ctx"
 source "${SCRIPT_DIR}/lib/common.sh"
 source "${SCRIPT_DIR}/lib/logging.sh"
-source "${SCRIPT_DIR}/lib/system.sh"
 
 # Main build process
 main() {
