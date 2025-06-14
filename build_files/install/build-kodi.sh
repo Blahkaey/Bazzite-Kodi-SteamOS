@@ -29,6 +29,8 @@ clone_kodi_source() {
 configure_build() {
     log_info "Configuring Kodi build for HDR support..."
 
+    mkdir -p "$BUILD_DIR"
+
     cd "$BUILD_DIR"
 
     # Verify GBM support before proceeding
