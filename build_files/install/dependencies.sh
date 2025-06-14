@@ -235,6 +235,9 @@ build_libdisplay_info() {
     log_info "Building libdisplay-info (required for GBM)..."
 
     mkdir -p "/tmp/libdisplay-info-build"
+    mkdir -p "/usr/local/include"
+
+
     local build_dir="/tmp/libdisplay-info-build"
 
     # Install build dependencies
