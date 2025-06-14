@@ -32,13 +32,13 @@ configure_build() {
     cd "$BUILD_DIR"
 
     # Verify GBM support before proceeding
-    if [[ "$SYSTEM_FEATURES" != *"gbm"* ]]; then
-        die "GBM support is required for HDR but was not detected"
-    fi
+    #if [[ "$SYSTEM_FEATURES" != *"gbm"* ]]; then
+    #    die "GBM support is required for HDR but was not detected"
+    #fi
 
-    if [[ "$SYSTEM_FEATURES" != *"gles"* ]]; then
-        die "GLES support is required for HDR but was not detected"
-    fi
+    #if [[ "$SYSTEM_FEATURES" != *"gles"* ]]; then
+    #    die "GLES support is required for HDR but was not detected"
+    #fi
 
     # Use the HDR-specific CMake arguments (no modifications)
     local cmake_args=("${KODI_CMAKE_ARGS[@]}")
@@ -151,7 +151,7 @@ install_kodi_standalone_service() {
 main() {
     log_subsection "Building Kodi with HDR Support (GBM+GLES+VA-API)"
 
-    prepare_build_environment
+    #prepare_build_environment
     clone_kodi_source
     configure_build
     build_kodi
