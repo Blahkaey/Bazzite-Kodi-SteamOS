@@ -34,14 +34,14 @@ install_packages() {
 
         # Try to install mesa devel packages from COPR
         for pkg in mesa-libgbm-devel mesa-libEGL-devel; do
-            if dnf5 install -y "$pkg" --repo "bazzite-repo" ; then
+            if dnf5 install -y "$pkg" --repo "terra-mesa" ; then
                 log_success "Installed $pkg from Bazzite COPR >/dev/null 2>&1"
                 installed_packages+=("$pkg")
             else
                 log_warning "Could not install $pkg - will check if headers exist elsewhere"
             fi
 
-        dnf5 config-manager setopt bazzite-repo.enabled=0
+        dnf5 config-manager setopt terra-mesa.enabled=0
         done
     fi
 
@@ -82,27 +82,6 @@ install_packages() {
     return 0
 }
 
-enable_bazzite_copr() {
-    log_info "Adding Bazzite repository..."
-
-    # Create a temporary repo file for Fedora 41
-    cat > /tmp/bazzite.repo << 'EOF'
-[bazzite-repo]
-name=Copr repo for bazzite owned by bazzite-org
-baseurl=https://download.copr.fedorainfracloud.org/results/bazzite-org/bazzite/fedora-$releasever-$basearch/
-type=rpm-md
-skip_if_unavailable=True
-gpgcheck=1
-gpgkey=https://download.copr.fedorainfracloud.org/results/bazzite-org/bazzite/pubkey.gpg
-repo_gpgcheck=0
-enabled=1
-enabled_metadata=1
-EOF
-
-    dnf5 config-manager addrepo --from-repofile=/tmp/bazzite.repo
-    dnf5 repolist
-    log_success "Bazzite repository added"
-}
 
 add_java11() {
     log_info "Adding Fedora 41 repository..."
@@ -258,9 +237,6 @@ main() {
     if [ ! -f "$PACKAGE_CONFIG" ]; then
         die "Package configuration not found: $PACKAGE_CONFIG"
     fi
-
-    # Enable Bazzite COPR for matching mesa devel packages
-    #enable_bazzite_copr
 
     dnf5 config-manager setopt "terra-mesa".enabled=1
     dnf5 repolist
