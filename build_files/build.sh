@@ -11,8 +11,6 @@ ldconfig
 PKG_CONFIG_PATH="${PKG_CONFIG_PATH:-}"
 export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib64/pkgconfig:$PKG_CONFIG_PATH"
 
-
-
 # Main build process
 main() {
     log_section "Kodi HDR Build Process"
