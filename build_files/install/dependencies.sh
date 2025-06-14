@@ -5,53 +5,19 @@ set -euo pipefail
 SCRIPT_DIR="/ctx"
 source "${SCRIPT_DIR}/lib/common.sh"
 source "${SCRIPT_DIR}/lib/logging.sh"
-source "${SCRIPT_DIR}/lib/system.sh"
 
 # Load package lists from container mount
 PACKAGE_CONFIG="${SCRIPT_DIR}/assets/package-lists.conf"
 
-# Detect package manager (Bazzite uses dnf, not dnf5)
-detect_package_manager() {
-    if command -v dnf5 >/dev/null 2>&1; then
-        echo "dnf5"
-    elif command -v dnf >/dev/null 2>&1; then
-        echo "dnf"
-    elif command -v rpm-ostree >/dev/null 2>&1; then
-        # Bazzite is an immutable OS, but in container build we use dnf
-        echo "dnf"
-    else
-        die "No supported package manager found"
-    fi
-}
 
 enable_bazzite_copr() {
-    local pkg_manager=$(detect_package_manager)
-
     log_info "Enabling Bazzite COPR repository for matching mesa devel packages..."
 
-    if [ "$pkg_manager" = "dnf5" ]; then
-        # Try to enable Bazzite COPR with dnf5
-        if dnf5 copr enable bazzite-org/bazzite -y >/dev/null 2>&1; then
-            log_success "Bazzite COPR repository enabled"
-            return 0
-        fi
+    if !dnf5 copr enable bazzite-org/bazzite -y >/dev/null 2>&1; then
+            die "Bazzite COPR repository failed to enable"
     fi
 
-    # Fallback to manual repo configuration
-    log_info "Creating manual COPR configuration..."
-    cat > /etc/yum.repos.d/bazzite-copr.repo << 'EOF'
-[copr:copr.fedorainfracloud.org:bazzite-org:bazzite]
-name=Copr repo for bazzite owned by bazzite-org
-baseurl=https://download.copr.fedorainfracloud.org/results/bazzite-org/bazzite/fedora-$releasever-$basearch/
-type=rpm-md
-skip_if_unavailable=True
-gpgcheck=1
-gpgkey=https://download.copr.fedorainfracloud.org/results/bazzite-org/bazzite/pubkey.gpg
-repo_gpgcheck=0
-enabled=1
-enabled_metadata=1
-priority=90
-EOF
+    dnf5 repolist
 
     log_success "Bazzite COPR repository configured"
 }
@@ -59,7 +25,6 @@ EOF
 install_packages() {
     local category="$1"
     local required="$2"
-    local pkg_manager=$(detect_package_manager)
 
     # Read packages from config
     local packages=$(grep "^${category}|" "$PACKAGE_CONFIG" 2>/dev/null | cut -d'|' -f2)
@@ -69,7 +34,7 @@ install_packages() {
         return 1
     fi
 
-    log_info "Installing $category packages using $pkg_manager..."
+    log_info "Installing $category packages..."
 
     # Convert to array
     local pkg_array=($packages)
@@ -82,7 +47,7 @@ install_packages() {
 
         # Try to install mesa devel packages from COPR
         for pkg in mesa-libgbm-devel mesa-libEGL-devel; do
-            if $pkg_manager install -y "$pkg" --enablerepo="copr:*bazzite*" >/dev/null 2>&1; then
+            if dnf5 install -y "$pkg" --enablerepo="copr:*bazzite*" >/dev/null 2>&1; then
                 log_success "Installed $pkg from Bazzite COPR"
                 installed_packages+=("$pkg")
             else
@@ -92,7 +57,7 @@ install_packages() {
     fi
 
     # Batch install first (faster)
-    if $pkg_manager install -y ${pkg_array[@]} >/dev/null 2>&1; then
+    if dnf5 install -y ${pkg_array[@]} >/dev/null 2>&1; then
         log_success "Batch installed $category packages"
         return 0
     fi
@@ -104,7 +69,7 @@ install_packages() {
         if rpm -q "$pkg" >/dev/null 2>&1; then
             log_debug "$pkg already installed"
             installed_packages+=("$pkg")
-        elif $pkg_manager install -y "$pkg" >/dev/null 2>&1; then
+        elif dnf5 install -y "$pkg" >/dev/null 2>&1; then
             log_success "Installed $pkg"
             installed_packages+=("$pkg")
         else
@@ -220,9 +185,63 @@ verify_hdr_requirements() {
     return 0
 }
 
+# System detection and capability checking
+detect_system_capabilities() {
+    local capabilities=""
+
+    # Check for VA-API
+    if pkg-config --exists libva 2>/dev/null || [ -f "/usr/include/va/va.h" ]; then
+        capabilities="${capabilities} vaapi"
+    elif rpm -q mesa-va-drivers >/dev/null 2>&1; then
+        # Bazzite might have VA-API support without headers
+        capabilities="${capabilities} vaapi"
+    fi
+
+    # Check for OpenGL/EGL
+    if [ -d "/usr/include/EGL" ] || [ -f "/usr/lib64/libEGL.so" ]; then
+        capabilities="${capabilities} egl"
+    elif rpm -q mesa-libEGL >/dev/null 2>&1; then
+        # Bazzite has EGL runtime without headers
+        capabilities="${capabilities} egl"
+    fi
+
+    # Check for GLES
+    if [ -d "/usr/include/GLES2" ] || [ -f "/usr/lib64/libGLESv2.so" ]; then
+        capabilities="${capabilities} gles"
+    elif rpm -q mesa-libGL >/dev/null 2>&1; then
+        # Bazzite bundles GLES with GL
+        capabilities="${capabilities} gles"
+    fi
+
+    # Check for GBM
+    if pkg-config --exists gbm 2>/dev/null || [ -f "/usr/include/gbm.h" ]; then
+        capabilities="${capabilities} gbm"
+    elif rpm -q mesa-libgbm >/dev/null 2>&1; then
+        # Bazzite has GBM runtime without headers
+        capabilities="${capabilities} gbm"
+    fi
+
+    # Check for systemd
+    if command -v systemctl >/dev/null 2>&1; then
+        capabilities="${capabilities} systemd"
+    fi
+
+    # Check for Wayland
+    if pkg-config --exists wayland-client 2>/dev/null; then
+        capabilities="${capabilities} wayland"
+    fi
+
+    # Check for libdrm
+    if pkg-config --exists libdrm 2>/dev/null || rpm -q libdrm >/dev/null 2>&1; then
+        capabilities="${capabilities} drm"
+    fi
+
+    echo "$capabilities"
+}
+
 # Main execution
 main() {
-    log_subsection "Package Installation for HDR/GBM Build"
+    log_subsection "Package Installation for Kodi HDR/GBM Build"
 
     # Check if package config exists
     if [ ! -f "$PACKAGE_CONFIG" ]; then
@@ -250,15 +269,6 @@ main() {
     # Detect system capabilities
     SYSTEM_FEATURES=$(detect_system_capabilities)
     log_info "Detected system features: $SYSTEM_FEATURES"
-
-    # For Bazzite, we might need to force GBM support detection
-    if rpm -q mesa-libgbm >/dev/null 2>&1; then
-        SYSTEM_FEATURES="${SYSTEM_FEATURES} gbm"
-    fi
-
-    if rpm -q mesa-libEGL >/dev/null 2>&1; then
-        SYSTEM_FEATURES="${SYSTEM_FEATURES} egl"
-    fi
 
     # Export for use by build script
     echo "$SYSTEM_FEATURES" > /tmp/kodi-build-features.tmp

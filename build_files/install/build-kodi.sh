@@ -1,10 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-SCRIPT_DIR="$(dirname "$0")"
-source "${SCRIPT_DIR}/../lib/common.sh"
-source "${SCRIPT_DIR}/../lib/logging.sh"
-source "${SCRIPT_DIR}/../lib/system.sh"
+SCRIPT_DIR="/ctx"
+source "${SCRIPT_DIR}/lib/common.sh"
+source "${SCRIPT_DIR}/lib/logging.sh"
 
 # Load detected features
 [ -f /tmp/kodi-build-features.tmp ] && SYSTEM_FEATURES=$(cat /tmp/kodi-build-features.tmp)

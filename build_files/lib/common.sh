@@ -6,8 +6,9 @@ export KODI_USER="kodi"
 export KODI_HOME="/var/lib/kodi"
 export BUILD_DIR="/tmp/kodi-build"
 export SOURCE_DIR="/tmp/kodi-source"
+
 export KODI_REPO="https://github.com/xbmc/xbmc"
-export KODI_BRANCH="master"
+export KODI_BRANCH="Omega"
 
 # Container-specific paths
 export SCRIPTS_DIR="/ctx"
