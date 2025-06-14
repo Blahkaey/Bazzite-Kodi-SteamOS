@@ -9,19 +9,6 @@ source "${SCRIPT_DIR}/lib/logging.sh"
 # Load package lists from container mount
 PACKAGE_CONFIG="${SCRIPT_DIR}/assets/package-lists.conf"
 
-
-enable_bazzite_copr() {
-    log_info "Enabling Bazzite COPR repository for matching mesa devel packages..."
-
-    if !dnf5 copr enable bazzite-org/bazzite -y >/dev/null 2>&1; then
-            die "Bazzite COPR repository failed to enable"
-    fi
-
-    dnf5 repolist
-
-    log_success "Bazzite COPR repository configured"
-}
-
 install_packages() {
     local category="$1"
     local required="$2"
@@ -47,12 +34,14 @@ install_packages() {
 
         # Try to install mesa devel packages from COPR
         for pkg in mesa-libgbm-devel mesa-libEGL-devel; do
-            if dnf5 install -y "$pkg" --enablerepo="copr:*bazzite*" >/dev/null 2>&1; then
+            if dnf5 install -y "$pkg" --repo="bazzite-repo" >/dev/null 2>&1; then
                 log_success "Installed $pkg from Bazzite COPR"
                 installed_packages+=("$pkg")
             else
                 log_warning "Could not install $pkg - will check if headers exist elsewhere"
             fi
+
+        dnf5 config-manager setopt bazzite-repo.enabled=0
         done
     fi
 
@@ -91,6 +80,28 @@ install_packages() {
     fi
 
     return 0
+}
+
+enable_bazzite_copr() {
+    log_info "Adding Bazzite repository..."
+
+    # Create a temporary repo file for Fedora 41
+    cat > /tmp/bazzite.repo << 'EOF'
+[bazzite-repo]
+name=Copr repo for bazzite owned by bazzite-org
+baseurl=https://download.copr.fedorainfracloud.org/results/bazzite-org/bazzite/fedora-$releasever-$basearch/
+type=rpm-md
+skip_if_unavailable=True
+gpgcheck=1
+gpgkey=https://download.copr.fedorainfracloud.org/results/bazzite-org/bazzite/pubkey.gpg
+repo_gpgcheck=0
+enabled=1
+enabled_metadata=1
+EOF
+
+    dnf5 config-manager addrepo --from-repofile=/tmp/bazzite.repo
+
+    log_success "Bazzite repository added"
 }
 
 add_java11() {
