@@ -260,7 +260,10 @@ main() {
     fi
 
     # Enable Bazzite COPR for matching mesa devel packages
-    enable_bazzite_copr
+    #enable_bazzite_copr
+
+    dnf5 config-manager setopt "terra-mesa".enabled=1
+    dnf5 repolist
 
     # Install java 11 headless using fedora 41 repo
     add_java11
