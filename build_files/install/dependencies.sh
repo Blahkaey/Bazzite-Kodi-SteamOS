@@ -30,12 +30,12 @@ install_packages() {
 
     # Special handling for GBM_DEPS on Bazzite
     if [ "$category" = "GBM_DEPS" ]; then
-        log_info "Attempting to install mesa devel packages from Bazzite COPR..."
+        log_info "Attempting to install mesa devel packages from terra-mesa..."
 
         # Try to install mesa devel packages from COPR
         for pkg in mesa-libgbm-devel mesa-libEGL-devel; do
             if dnf5 install -y "$pkg" --repo "terra-mesa" >/dev/null 2>&1; then
-                log_success "Installed $pkg from Bazzite COPR "
+                log_success "Installed $pkg from terra-mesa"
                 installed_packages+=("$pkg")
             else
                 log_warning "Could not install $pkg - will check if headers exist elsewhere"
@@ -241,7 +241,7 @@ build_libdisplay_info() {
     local build_dir="/tmp/libdisplay-info-build"
 
     # Install build dependencies
-    dnf5 install -y meson ninja-build || die "Failed to install meson/ninja"
+    dnf5 install -y meson ninja-build >/dev/null 2>&1 || die "Failed to install meson/ninja"
 
     # Clone and build
     if ! git clone --depth 1 https://gitlab.freedesktop.org/emersion/libdisplay-info.git "$source_dir"; then
