@@ -34,13 +34,13 @@ configure_build() {
     cd "$BUILD_DIR"
 
     # Verify GBM support before proceeding
-    #if [[ "$SYSTEM_FEATURES" != *"gbm"* ]]; then
-    #    die "GBM support is required for HDR but was not detected"
-    #fi
+    if [[ "$SYSTEM_FEATURES" != *"gbm"* ]]; then
+        die "GBM support is required for HDR but was not detected"
+    fi
 
-    #if [[ "$SYSTEM_FEATURES" != *"gles"* ]]; then
-    #    die "GLES support is required for HDR but was not detected"
-    #fi
+    if [[ "$SYSTEM_FEATURES" != *"gles"* ]]; then
+        die "GLES support is required for HDR but was not detected"
+    fi
 
     # Use the HDR-specific CMake arguments (no modifications)
     local cmake_args=("${KODI_CMAKE_ARGS[@]}")
@@ -62,6 +62,9 @@ configure_build() {
         die "Cannot proceed without HDR configuration"
     fi
 
+    log_info "cat CMakeCache.txt"
+    cat CMakeCache.txt
+    log_info "cat CMakeCache.txt"
     # Verify the build was configured correctly
     if ! grep -q "CORE_PLATFORM_NAME:STRING=gbm" CMakeCache.txt; then
         die "Build misconfigured: GBM platform not set"
