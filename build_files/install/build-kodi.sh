@@ -28,7 +28,7 @@ clone_kodi_source() {
 
 configure_build() {
     log_info "Configuring Kodi build for HDR support..."
-
+    export FFMPEG_CONFIGURE_FLAGS="--disable-vaapi"
     mkdir -p "$BUILD_DIR"
 
     cd "$BUILD_DIR"

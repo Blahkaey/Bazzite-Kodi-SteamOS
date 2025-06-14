@@ -5,12 +5,6 @@ SCRIPT_DIR="/ctx"
 source "${SCRIPT_DIR}/lib/common.sh"
 source "${SCRIPT_DIR}/lib/logging.sh"
 
-# Ensure all subprocesses can find libraries
-echo "/usr/lib" > /etc/ld.so.conf.d/vaapi.conf
-ldconfig
-PKG_CONFIG_PATH="${PKG_CONFIG_PATH:-}"
-export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib64/pkgconfig:$PKG_CONFIG_PATH"
-
 # Main build process
 main() {
     log_section "Kodi HDR Build Process"
