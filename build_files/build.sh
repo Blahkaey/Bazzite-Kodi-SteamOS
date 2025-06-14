@@ -5,15 +5,6 @@ SCRIPT_DIR="/ctx"
 source "${SCRIPT_DIR}/lib/common.sh"
 source "${SCRIPT_DIR}/lib/logging.sh"
 
-# Fix for FFmpeg VA-API detection in containerized builds
-export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
-export PKG_CONFIG_ALLOW_SYSTEM_CFLAGS=1
-export PKG_CONFIG_ALLOW_SYSTEM_LIBS=1
-
-# Ensure ldconfig cache is updated
-ldconfig 2>/dev/null || true
-
-
 # Main build process
 main() {
     log_section "Kodi HDR Build Process"
