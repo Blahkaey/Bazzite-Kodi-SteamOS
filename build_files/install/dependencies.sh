@@ -230,48 +230,6 @@ detect_system_capabilities() {
 }
 
 
-# libdisplay-info build function
-build_libdisplay_info() {
-    log_info "Building libdisplay-info (required for GBM)..."
-
-    mkdir -p "/tmp/libdisplay-info-source"
-    mkdir -p "/tmp/libdisplay-info-build"
-
-    local source_dir="/tmp/libdisplay-info-source"
-    local build_dir="/tmp/libdisplay-info-build"
-
-    # Install build dependencies
-    dnf5 install -y meson ninja-build >/dev/null 2>&1 || die "Failed to install meson/ninja"
-
-    # Clone and build
-    if ! git clone --depth 1 https://gitlab.freedesktop.org/emersion/libdisplay-info.git "$source_dir"; then
-        die "Failed to clone libdisplay-info"
-    fi
-
-    cd "$source_dir"
-
-    # Build with meson
-    if ! meson setup build --prefix="$build_dir"; then
-        die "Failed to configure libdisplay-info"
-    fi
-
-    if ! ninja -C build; then
-        die "Failed to build libdisplay-info"
-    fi
-
-    if ! ninja -C build install; then
-        die "Failed to install libdisplay-info"
-    fi
-
-    # Update library cache
-    ldconfig
-
-    cleanup_dir "$source_dir"
-    cleanup_dir "$build_dir"
-    log_success "libdisplay-info built and installed"
-}
-
-
 
 # Main execution
 main() {
@@ -296,8 +254,6 @@ main() {
     install_packages "VAAPI" true || die "Failed to install VA-API packages"
     install_packages "OPTIONAL" false  # Optional, don't fail
     install_packages "SERVICE" true || die "Failed to install service packages"
-
-    build_libdisplay_info
 
     # Verify HDR requirements
     verify_hdr_requirements || die "HDR requirement verification failed"
