@@ -229,11 +229,11 @@ main() {
         die "Package configuration not found: $PACKAGE_CONFIG"
     fi
 
-    # Install java 11 headless using fedora 41 repo (do this first)
-    add_java11
-
     # Enable Bazzite COPR for matching mesa devel packages
     enable_bazzite_copr
+
+    # Install java 11 headless using fedora 41 repo
+    add_java11
 
     # Install packages by category
     install_packages "ESSENTIAL" true || die "Failed to install essential packages"
