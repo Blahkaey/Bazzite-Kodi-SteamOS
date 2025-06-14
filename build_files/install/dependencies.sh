@@ -34,8 +34,8 @@ install_packages() {
 
         # Try to install mesa devel packages from COPR
         for pkg in mesa-libgbm-devel mesa-libEGL-devel; do
-            if dnf5 install -y "$pkg" --repo="bazzite-repo" >/dev/null 2>&1; then
-                log_success "Installed $pkg from Bazzite COPR"
+            if dnf5 install -y "$pkg" --repo "bazzite-repo" ; then
+                log_success "Installed $pkg from Bazzite COPR >/dev/null 2>&1"
                 installed_packages+=("$pkg")
             else
                 log_warning "Could not install $pkg - will check if headers exist elsewhere"
@@ -100,7 +100,7 @@ enabled_metadata=1
 EOF
 
     dnf5 config-manager addrepo --from-repofile=/tmp/bazzite.repo
-
+    dnf5 repolist
     log_success "Bazzite repository added"
 }
 
