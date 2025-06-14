@@ -62,7 +62,7 @@ configure_build() {
         die "Cannot proceed without HDR configuration"
     fi
 
-    log_info "Verifying CMake configuration..."
+    log_info "Verifying CMake configuration..."`
 
     # Check GBM platform - match any cache entry type
     if ! grep -q -E "^CORE_PLATFORM_NAME:[A-Z]+=gbm" CMakeCache.txt; then

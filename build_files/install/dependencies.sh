@@ -251,8 +251,6 @@ main() {
     install_packages "CORE_DEPS" true || die "Failed to install core dependencies"
     install_packages "GBM_DEPS" true || die "Failed to install GBM dependencies"
     install_packages "GRAPHICS" true || die "Failed to install graphics libraries"
-    install_packages "FFMPEG_DEPS" true || die "Failed to install ffmpeg libraries"
-    dnf5 install -y ffmpeg-free-devel
     install_packages "VAAPI" true || die "Failed to install VA-API packages"
     install_packages "OPTIONAL" false  # Optional, don't fail
     install_packages "SERVICE" true || die "Failed to install service packages"
