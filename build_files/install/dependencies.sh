@@ -234,24 +234,24 @@ detect_system_capabilities() {
 build_libdisplay_info() {
     log_info "Building libdisplay-info (required for GBM)..."
 
+    mkdir -p "/tmp/libdisplay-info-source"
     mkdir -p "/tmp/libdisplay-info-build"
-    mkdir "/usr/local/include"
 
-
+    local source_dir="/tmp/libdisplay-info-source"
     local build_dir="/tmp/libdisplay-info-build"
 
     # Install build dependencies
     dnf5 install -y meson ninja-build || die "Failed to install meson/ninja"
 
     # Clone and build
-    if ! git clone --depth 1 https://gitlab.freedesktop.org/emersion/libdisplay-info.git "$build_dir"; then
+    if ! git clone --depth 1 https://gitlab.freedesktop.org/emersion/libdisplay-info.git "$source_dir"; then
         die "Failed to clone libdisplay-info"
     fi
 
-    cd "$build_dir"
+    cd "$source_dir"
 
     # Build with meson
-    if ! meson setup build --prefix=/usr/local; then
+    if ! meson setup build --prefix="$build_dir"; then
         die "Failed to configure libdisplay-info"
     fi
 
@@ -266,6 +266,7 @@ build_libdisplay_info() {
     # Update library cache
     ldconfig
 
+    cleanup_dir "$source_dir"
     cleanup_dir "$build_dir"
     log_success "libdisplay-info built and installed"
 }
