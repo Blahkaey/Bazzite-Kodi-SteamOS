@@ -34,8 +34,8 @@ install_packages() {
 
         # Try to install mesa devel packages from COPR
         for pkg in mesa-libgbm-devel mesa-libEGL-devel; do
-            if dnf5 install -y "$pkg" --repo "terra-mesa" ; then
-                log_success "Installed $pkg from Bazzite COPR >/dev/null 2>&1"
+            if dnf5 install -y "$pkg" --repo "terra-mesa" >/dev/null 2>&1; then
+                log_success "Installed $pkg from Bazzite COPR "
                 installed_packages+=("$pkg")
             else
                 log_warning "Could not install $pkg - will check if headers exist elsewhere"
