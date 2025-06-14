@@ -62,17 +62,33 @@ configure_build() {
         die "Cannot proceed without HDR configuration"
     fi
 
-    log_info "cat CMakeCache.txt"
-    cat CMakeCache.txt
-    log_info "cat CMakeCache.txt"
-    # Verify the build was configured correctly
-    if ! grep -q "CORE_PLATFORM_NAME:STRING=gbm" CMakeCache.txt; then
+    log_info "Verifying CMake configuration..."
+
+    # Check GBM platform - match any cache entry type
+    if ! grep -q -E "^CORE_PLATFORM_NAME:[A-Z]+=gbm" CMakeCache.txt; then
+        log_error "GBM platform not found in CMakeCache.txt"
+        log_error "Looking for: CORE_PLATFORM_NAME:*=gbm"
+        log_error "Found:"
+        grep "CORE_PLATFORM_NAME" CMakeCache.txt || echo "  (not found)"
         die "Build misconfigured: GBM platform not set"
+    else
+        log_success "GBM platform verified"
     fi
 
-    if ! grep -q "APP_RENDER_SYSTEM:STRING=gles" CMakeCache.txt; then
+    # Check GLES render system - match any cache entry type
+    if ! grep -q -E "^APP_RENDER_SYSTEM:[A-Z]+=gles" CMakeCache.txt; then
+        log_error "GLES render system not found in CMakeCache.txt"
+        log_error "Looking for: APP_RENDER_SYSTEM:*=gles"
+        log_error "Found:"
+        grep "APP_RENDER_SYSTEM" CMakeCache.txt || echo "  (not found)"
         die "Build misconfigured: GLES render system not set"
+    else
+        log_success "GLES render system verified"
     fi
+
+    # Optional: Log what we actually found for debugging
+    log_info "Build configuration confirmed:"
+    grep -E "^(CORE_PLATFORM_NAME|APP_RENDER_SYSTEM):" CMakeCache.txt | sed 's/^/  /'
 
     BUILD_FEATURES="gbm gles vaapi hdr"
     echo "$BUILD_FEATURES" > /tmp/kodi-build-features-final.tmp
