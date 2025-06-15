@@ -227,6 +227,48 @@ detect_system_capabilities() {
     echo "$capabilities"
 }
 
+build_libva() {
+    log_info "Building libva (Video Acceleration API library)..."
+
+    mkdir -p "/tmp/libva-build"
+
+    local build_dir="/tmp/libva-build"
+    cleanup_dir "$build_dir"
+
+
+    # Clone the repo
+    if ! git clone --depth 1 https://github.com/intel/libva.git "$build_dir"; then
+        die "Failed to clone libva repository"
+    fi
+
+    # Enter build dir
+    cd "$build_dir" || die "Cannot cd into $build_dir"
+
+    # Meson-based out‑of‑source build
+    mkdir -p build
+    cd build
+
+    if ! meson .. \
+        -Dprefix=/usr \
+        -Dlibdir=/usr/lib64; then
+        die "Meson configuration for libva failed"
+    fi
+
+    if ! ninja; then
+        die "Failed to compile libva"
+    fi
+
+    if ! ninja install; then
+        die "Failed to install libva"
+    fi
+
+    # Update the system library cache
+    ldconfig
+
+    # Clean up after ourselves
+    cleanup_dir "$build_dir"
+    log_success "libva built and installed successfully"
+}
 
 
 # Main execution
@@ -249,7 +291,8 @@ main() {
     install_packages "CORE_DEPS" true || die "Failed to install core dependencies"
     install_packages "GBM_DEPS" true || die "Failed to install GBM dependencies"
     install_packages "GRAPHICS" true || die "Failed to install graphics libraries"
-    install_packages "VAAPI" true || die "Failed to install VA-API packages"
+    #install_packages "VAAPI" true || die "Failed to install VA-API packages"
+    build_libva
     install_packages "OPTIONAL" false  # Optional, don't fail
     install_packages "SERVICE" true || die "Failed to install service packages"
 
