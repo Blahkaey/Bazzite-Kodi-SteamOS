@@ -8,7 +8,7 @@ export BUILD_DIR="/tmp/kodi-build"
 export SOURCE_DIR="/tmp/kodi-source"
 
 export KODI_REPO="https://github.com/xbmc/xbmc"
-export KODI_BRANCH="Master"
+export KODI_BRANCH="Omega"
 
 # Container-specific paths
 export SCRIPTS_DIR="/ctx"
@@ -27,7 +27,7 @@ export KODI_CMAKE_ARGS=(
     "-DENABLE_INTERNAL_FLATBUFFERS=ON"
     "-DENABLE_INTERNAL_CROSSGUID=ON"
     "-DENABLE_INTERNAL_FSTRCMP=ON"
-
+    "-DENABLE_INTERNAL_FFMPEG=ON"
     "-DENABLE_UDEV=ON"
 )
 #"-DENABLE_INTERNAL_DAV1D=ON"
