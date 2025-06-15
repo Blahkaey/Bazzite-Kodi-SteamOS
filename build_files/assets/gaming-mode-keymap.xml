@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<keymap>
+    <global>
+        <keyboard>
+            <!-- F12 to switch back to gaming mode -->
+            <f12>System.Exec(/usr/bin/switch-to-gamemode)</f12>
+        </keyboard>
+        <remote>
+            <!-- Power button long press switches to gaming mode -->
+            <power mod="longpress">System.Exec(/usr/bin/switch-to-gamemode)</power>
+        </remote>
+    </global>
+    <Home>
+        <keyboard>
+            <!-- Ctrl+G to switch to gaming mode from home screen -->
+            <g mod="ctrl">System.Exec(/usr/bin/switch-to-gamemode)</g>
+        </keyboard>
+    </Home>
+</keymap>

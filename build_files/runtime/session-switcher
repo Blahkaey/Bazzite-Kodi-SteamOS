@@ -1,0 +1,77 @@
+#!/bin/bash
+
+# Session management CLI tool
+
+show_help() {
+    cat << EOF
+Session Switcher for Bazzite HDR-Kodi Setup
+Usage: session-switcher [OPTION]
+
+Options:
+  kodi      Switch to Kodi HDR session
+  gaming    Switch to Gaming Mode (Gamescope + Steam)
+  status    Show current session status
+  help      Show this help message
+
+Examples:
+  session-switcher kodi     # Switch to Kodi
+  session-switcher status   # Check current session
+EOF
+}
+
+show_status() {
+    echo "Session Status"
+    echo "=============="
+
+    # Check Kodi
+    if systemctl is-active --quiet kodi-gbm.service; then
+        echo "Kodi HDR:     [ACTIVE]"
+    else
+        echo "Kodi HDR:     [inactive]"
+    fi
+
+    # Check Gaming Mode
+    if systemctl is-active --quiet sddm.service; then
+        echo "Gaming Mode:  [ACTIVE]"
+    else
+        echo "Gaming Mode:  [inactive]"
+    fi
+
+    echo
+    echo "System Information"
+    echo "=================="
+    echo "Kodi binary:  $(command -v kodi-gbm || echo 'Not found')"
+    echo "GPU vendor:   $(lspci | grep -i vga | cut -d: -f3 | xargs)"
+
+    # Check VA-API
+    if command -v vainfo >/dev/null 2>&1; then
+        if vainfo 2>&1 | grep -q "VA-API version"; then
+            echo "VA-API:       Available"
+        else
+            echo "VA-API:       Not working"
+        fi
+    else
+        echo "VA-API:       Not installed"
+    fi
+}
+
+# Main logic
+case "${1:-}" in
+    kodi)
+        exec /usr/bin/switch-to-kodi
+        ;;
+    gaming)
+        exec /usr/bin/switch-to-gamemode
+        ;;
+    status)
+        show_status
+        ;;
+    help|--help|-h)
+        show_help
+        ;;
+    *)
+        echo "Error: Invalid option '${1:-}'"
+        echo "Try 'session-switcher help' for usage information"
+        exit 1
+        ;;
+esac

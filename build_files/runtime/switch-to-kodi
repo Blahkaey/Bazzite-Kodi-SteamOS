@@ -1,0 +1,21 @@
+#!/bin/bash
+set -euo pipefail
+
+echo "Switching to Kodi HDR session..."
+
+# Stop current gamescope session if running
+systemctl --user stop gamescope-session-plus@steam.service 2>/dev/null || true
+
+# Stop SDDM
+systemctl stop sddm.service 2>/dev/null || true
+
+# Give services time to stop cleanly
+sleep 2
+
+# Start Kodi GBM service (HDR capable)
+if ! systemctl start kodi-gbm.service; then
+    echo "ERROR: Failed to start Kodi service" >&2
+    exit 1
+fi
+
+echo "Switched to Kodi HDR session successfully"

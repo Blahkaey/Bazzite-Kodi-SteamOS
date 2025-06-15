@@ -281,7 +281,6 @@ main() {
     fi
 
     dnf5 config-manager setopt "terra-mesa".enabled=1
-    #dnf5 repolist
 
     # Install java 11 headless using fedora 41 repo
     add_java11
@@ -291,12 +290,9 @@ main() {
     install_packages "CORE_DEPS" true || die "Failed to install core dependencies"
     install_packages "GBM_DEPS" true || die "Failed to install GBM dependencies"
     install_packages "GRAPHICS" true || die "Failed to install graphics libraries"
-    #install_packages "VAAPI" true || die "Failed to install VA-API packages"
     build_libva
     install_packages "OPTIONAL" false  # Optional, don't fail
     install_packages "SERVICE" true || die "Failed to install service packages"
-
-    #dnf5 install -y libva-drm-devel libva-x11-devel
 
 
     # Verify HDR requirements
