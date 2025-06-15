@@ -100,6 +100,9 @@ configure_build() {
     # Use internal FFmpeg due to Bazzite's non-standard packaging
     log_info "Using internal FFmpeg build (Bazzite compatibility)"
 
+    mkdir -p "$BUILD_DIR"
+    cd "$BUILD_DIR"
+
     # Ensure VA-API is discoverable for internal FFmpeg
     export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
 
