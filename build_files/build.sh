@@ -12,16 +12,11 @@ main() {
     # Execute build stages with bash explicitly
     run_stage "Installing dependencies" "/bin/bash ${SCRIPT_DIR}/install/dependencies.sh"
     run_stage "Building Kodi from source" "/bin/bash ${SCRIPT_DIR}/install/build-kodi.sh"
-    #run_stage "Setting up services" "/bin/bash ${SCRIPT_DIR}/config/setup-services.sh"
-    #run_stage "Configuring sessions" "/bin/bash ${SCRIPT_DIR}/config/setup-sessions.sh"
+    run_stage "Setting up services" "/bin/bash ${SCRIPT_DIR}/config/setup-services.sh"
 
-    # Install runtime scripts
-    #log_info "Installing runtime scripts..."
-    #install_runtime_scripts
 
     log_section "Build Complete"
-    log_success "Kodi HDR build completed successfully!"
-    print_summary
+    log_success "Bazzite-Kodi-SteamOS build completed successfully!"
 }
 
 run_stage() {
@@ -36,18 +31,6 @@ run_stage() {
     fi
 
     log_success "$stage_name completed"
-}
-
-
-install_runtime_scripts() {
-    local runtime_dir="${SCRIPT_DIR}/runtime"
-
-    for script in "$runtime_dir"/*; do
-        [ -f "$script" ] || continue
-        local script_name=$(basename "$script")
-        log_info "Installing $script_name..."
-        install -m 755 "$script" "/usr/bin/$script_name"
-    done
 }
 
 

@@ -248,7 +248,7 @@ endif()\\
 }
 
 configure_build() {
-    log_info "Configuring Kodi build for HDR support..."
+    log_info "Configuring Kodi build..."
 
     # Debug VA-API setup before starting
     debug_vaapi_setup
@@ -258,6 +258,7 @@ configure_build() {
 
     mkdir -p '/usr/local/lib64/kodi'
     mkdir -p "$BUILD_DIR"
+
     cd "$BUILD_DIR"
 
     # Verify GBM support before proceeding
@@ -276,13 +277,6 @@ configure_build() {
     export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH:-}"
 
     log_info "PKG_CONFIG_PATH for build: $PKG_CONFIG_PATH"
-
-    # Log configuration for HDR
-    log_info "Building with HDR-optimized configuration:"
-    log_info "  Platform: GBM (required for HDR)"
-    log_info "  Render system: GLES (required for HDR passthrough)"
-    log_info "  VA-API: Enabled (hardware acceleration)"
-    log_info "  VDPAU: Disabled (incompatible with HDR)"
 
     log_info "CMake arguments:"
     printf '%s\n' "${cmake_args[@]}" | sed 's/^/  /'
@@ -314,12 +308,12 @@ configure_build() {
     BUILD_FEATURES="gbm gles vaapi hdr"
     echo "$BUILD_FEATURES" > /tmp/kodi-build-features-final.tmp
 
-    log_success "HDR build configured successfully"
+    log_success "Kodi build configured successfully"
 }
 
 # Rest of the functions remain the same...
 build_kodi() {
-    log_info "Building Kodi with HDR support..."
+    log_info "Building Kodi..."
 
     cd "$BUILD_DIR"
 
@@ -327,20 +321,14 @@ build_kodi() {
     log_info "Building with $num_cores parallel jobs..."
 
     if ! cmake --build . --parallel "$num_cores"; then
-        # If build fails, try to show any captured logs
-        if [ -f "/tmp/ffmpeg-configure.log" ]; then
-            log_error "FFmpeg configure output:"
-            cat /tmp/ffmpeg-configure.log
-        fi
-
-        die "Build failed - HDR build requirements not met"
+        die "Build failed"
     fi
 
-    log_success "HDR build completed successfully"
+    log_success "Build completed successfully"
 }
 
 install_kodi() {
-    log_info "Installing HDR-enabled Kodi..."
+    log_info "Installing Kodi..."
 
     cd "$BUILD_DIR"
 
@@ -348,29 +336,11 @@ install_kodi() {
         die "Installation failed"
     fi
 
-    #if [ ! -f "${KODI_PREFIX}/bin/kodi-gbm" ]; then
-    #    die "kodi-gbm binary not found - HDR build failed"
-    #fi
-
-    log_success "HDR-enabled Kodi installed to ${KODI_PREFIX}"
-}
-
-setup_kodi_user() {
-    log_info "Setting up Kodi user for HDR..."
-
-    if ! id "$KODI_USER" >/dev/null 2>&1; then
-        useradd -r -d "$KODI_HOME" -s /bin/bash "$KODI_USER"
-        log_success "Created user: $KODI_USER"
-    fi
-
-    usermod -a -G render,video,input,audio "$KODI_USER"
-
-    ensure_dir "$KODI_HOME"
-    chown -R "$KODI_USER:$KODI_USER" "$KODI_HOME"
+    log_success "Kodi installed"
 }
 
 install_kodi_standalone_service() {
-    log_info "Installing kodi-standalone-service for HDR support..."
+    log_info "Installing kodi-standalone-service..."
 
     local service_dir="/tmp/kodi-standalone-service"
     cleanup_dir "$service_dir"
@@ -397,7 +367,6 @@ main() {
     configure_build
     build_kodi
     install_kodi
-    setup_kodi_user
     install_kodi_standalone_service
 
     # Cleanup
@@ -406,8 +375,8 @@ main() {
     cleanup_dir "$BUILD_DIR"
     rm -f /tmp/kodi-build-*.tmp
 
-    log_success "HDR-enabled Kodi build complete"
-    log_info "Build configuration: GBM + GLES + VA-API (HDR-capable)"
+    log_success "Kodi build file complete"
+
 }
 
 main "$@"
