@@ -177,12 +177,12 @@ testing(){
                 log_warning "Still cannot find libva via pkg-config after updating PKG_CONFIG_PATH."
             fi
         else
-            log_warning "No libva.pc files found under /usr – please install libva-devel or equivalent."
+            log_warning "No libva.pc files found under /usr "
         fi
     fi
 
     if pkg-config --exists libva 2>/dev/null; then
-        log_warning "pkg-config FOUND find libva!!!!"
+        log_success "pkg-config FOUND find libva!!!!"
     fi
 
 }
