@@ -29,6 +29,29 @@ clone_kodi_source() {
 configure_build() {
     log_info "Configuring Kodi build for HDR support..."
     
+
+        # Debug: Check for pkg-config files
+    log_info "Checking for FFmpeg pkg-config files..."
+    find /usr -name "libavcodec.pc" 2>/dev/null || log_warning "libavcodec.pc not found"
+    find /usr -name "ffmpeg.pc" 2>/dev/null || log_warning "ffmpeg.pc not found"
+
+    # Check what ffmpeg-devel installed
+    log_info "Files installed by ffmpeg-devel:"
+    rpm -ql ffmpeg-devel | grep -E "(\.pc|include)" | head -20
+
+    # Set up pkg-config path - negativo17 might use different locations
+    export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH:-}"
+
+    # If negativo17 uses a different structure, add their paths
+    if [ -d "/usr/lib64/ffmpeg/pkgconfig" ]; then
+        export PKG_CONFIG_PATH="/usr/lib64/ffmpeg/pkgconfig:${PKG_CONFIG_PATH}"
+    fi
+
+    # Debug: Show pkg-config search
+    log_info "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
+    log_info "Searching for libavcodec with pkg-config..."
+    pkg-config --exists libavcodec && pkg-config --modversion libavcodec || log_warning "libavcodec not found by pkg-config"
+
     # Set up pkg-config path for FFmpeg to find VA-API
     export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
     
