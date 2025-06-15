@@ -276,7 +276,7 @@ main() {
     dnf5 config-manager setopt rpmfusion-nonfree.enabled=1
 
     log_info 'dnf5 repolist--all'
-    dnf5 repolist--all
+    dnf5 repolist --all
 
 
     log_info 'dnf5 install ffmpeg-devel libavcodec-devel libavformat-devel libavutil-devel libswscale-devel libswresample-devel libavfilter-devel libpostproc-devel'
