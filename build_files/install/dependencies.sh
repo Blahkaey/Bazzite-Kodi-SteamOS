@@ -279,11 +279,14 @@ main() {
     dnf5 config-manager setopt fedora-multimedia.enabled=1
     log_info "Installing FFmpeg development packages..."
     # Install FFmpeg development packages from negativo17
-    ls /etc/yum.repos.d/
-    cat /etc/yum.repos.d/negativo17-fedora-multimedia.repo
+    # Remove negativo17 packages
+    dnf5 remove -y ffmpeg ffmpeg-devel ffmpeg-libs
 
+    # Disable negativo17 repo temporarily
+    dnf5 config-manager setopt fedora-multimedia.enabled=0
 
-    dnf5 install -y ffmpeg ffmpeg-devel --repo fedora-multimedia
+    # Install from RPMFusion
+    dnf5 install -y ffmpeg ffmpeg-devel --repo rpmfusion-free
 
 
     # Verify HDR requirements
