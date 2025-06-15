@@ -86,6 +86,10 @@ debug_ffmpeg_installation() {
     log_info "Directories created by ffmpeg-devel:"
     rpm -ql ffmpeg-devel | grep -E "/$" | sort -u || true
 
+    log_info "Checking for ffmpeg command location and libs it uses:"
+    which ffmpeg
+    ldd $(which ffmpeg) | grep -E "libav|libsw" || true
+
     log_info "=== End FFmpeg Debug ==="
 }
 
