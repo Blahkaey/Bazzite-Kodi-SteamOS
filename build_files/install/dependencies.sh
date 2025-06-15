@@ -264,8 +264,8 @@ main() {
     log_info 'rpm -ql ffmpeg'
     rpm -ql ffmpeg
 
-    log_info 'dnf list installed | grep ffmpeg'
-    dnf5 list installed | grep ffmpeg
+    log_info 'dnf list | grep ffmpeg'
+    dnf5 list | grep ffmpeg
 
     log_info 'dnf5 repolist'
     dnf5 repolist
