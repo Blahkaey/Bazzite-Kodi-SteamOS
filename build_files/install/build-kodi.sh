@@ -205,7 +205,7 @@ configure_build() {
     fi
 
     # Use the HDR-specific CMake arguments (no modifications)
-    #local cmake_args=("${KODI_CMAKE_ARGS[@]}")
+    local cmake_args=("${KODI_CMAKE_ARGS[@]}")
 
     # Log configuration for HDR
     log_info "Building with HDR-optimized configuration:"
