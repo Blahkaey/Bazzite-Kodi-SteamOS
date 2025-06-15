@@ -18,7 +18,7 @@ prepare_build_environment() {
 
 clone_kodi_source() {
     log_info "Cloning Kodi source code..."
-    if ! git clone "$KODI_REPO" "$SOURCE_DIR"; then
+    if ! git clone --depth 1 "$KODI_REPO" "$SOURCE_DIR"; then
         die "Failed to clone Kodi repository"
     fi
 
@@ -255,6 +255,11 @@ configure_build() {
 
     # Apply the patch
     patch_ffmpeg_cmake
+
+    ls -l /usr
+    ls -l /usr/local
+    ls -l /usr/local/lib64
+
 
     mkdir '/usr/local/lib64/kodi'
     mkdir -p "$BUILD_DIR"

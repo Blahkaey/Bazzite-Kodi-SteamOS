@@ -248,7 +248,7 @@ build_libva() {
     mkdir -p build
     cd build
 
-    if ! meson .. \
+    if ! meson setup .. \
         -Dprefix=/usr \
         -Dlibdir=/usr/lib64; then
         die "Meson configuration for libva failed"
