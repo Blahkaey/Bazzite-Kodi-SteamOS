@@ -127,29 +127,32 @@ verify_vaapi_installation() {
     done
 
     # Create symlinks if needed (Bazzite might have libraries in non-standard locations)
-    #if [ ${#vaapi_lib_paths[@]} -gt 0 ] && [ ! -f "/usr/lib64/libva.so" ]; then
-    #    log_info "Creating compatibility symlinks for VA-API..."
+    if [ ${#vaapi_lib_paths[@]} -gt 0 ] && [ ! -f "/usr/lib64/libva.so" ]; then
+        log_info "Creating compatibility symlinks for VA-API..."
 
         # Find the actual library
         local src_lib="${vaapi_lib_paths[0]}/libva.so"
-        #if [ -L "$src_lib" ]; then
+        if [ -L "$src_lib" ]; then
             # Follow symlink to get the actual library
             src_lib=$(readlink -f "$src_lib")
-        #fi
+        fi
 
         # Create symlinks in standard location
-        #if [ -f "$src_lib" ]; then
+        if [ -f "$src_lib" ]; then
             ln -sf "$src_lib" /usr/lib64/libva.so 2>/dev/null || true
             ln -sf "${src_lib}.2" /usr/lib64/libva.so.2 2>/dev/null || true
             log_info "Created VA-API symlinks in /usr/lib64"
-        #fi
-    #fi
+        fi
+    fi
 
+    # Store the discovered PKG_CONFIG_PATH for later use
+    if [ ${#vaapi_pc_paths[@]} -gt 0 ]; then
+        export VAAPI_PKG_CONFIG_PATH="${vaapi_pc_paths[0]}"
+        log_info "VA-API pkg-config path: $VAAPI_PKG_CONFIG_PATH"
+    fi
 }
 
 testing(){
-
-
     # Ensure libva.pc is accessible
     if ! pkg-config --exists libva 2>/dev/null; then
         log_warning "pkg-config cannot find libva, searching for libva.pc..."
@@ -180,7 +183,6 @@ testing(){
             log_warning "No libva.pc files found under /usr "
         fi
     fi
-
 }
 
 patch_ffmpeg_cmake() {
@@ -189,194 +191,43 @@ patch_ffmpeg_cmake() {
     if [ -f "$cmake_file" ]; then
         log_info "Patching FFmpeg CMakeLists.txt to fix VA-API detection..."
 
-        # Create a complete replacement that properly handles PKG_CONFIG_PATH
-        cat > "${cmake_file}.new" << 'EOF'
-project(ffmpeg)
-cmake_minimum_required(VERSION 3.12)
+        # Create a simple script that will set PKG_CONFIG_PATH before running configure
+        local configure_wrapper="$BUILD_DIR/ffmpeg-configure-wrapper.sh"
+        cat > "$configure_wrapper" << 'EOF'
+#!/bin/bash
+# Wrapper to ensure FFmpeg finds VA-API
 
-if(ENABLE_CCACHE AND CCACHE_PROGRAM)
-  set(ffmpeg_conf "--cc=${CCACHE_PROGRAM} ${CMAKE_C_COMPILER}"
-                  "--cxx=${CCACHE_PROGRAM} ${CMAKE_CXX_COMPILER}"
-                )
-else()
-  set(ffmpeg_conf --cc=${CMAKE_C_COMPILER}
-                  --cxx=${CMAKE_CXX_COMPILER}
-                )
-endif()
+# Debug output
+echo "[FFmpeg Configure Wrapper] Starting with args: $@" >&2
+echo "[FFmpeg Configure Wrapper] Original PKG_CONFIG_PATH: ${PKG_CONFIG_PATH}" >&2
 
-if(CROSSCOMPILING)
-  set(pkgconf "PKG_CONFIG_LIBDIR=${DEPENDS_PATH}/lib/pkgconfig")
-  list(APPEND ffmpeg_conf --pkg-config=${PKG_CONFIG_EXECUTABLE}
-                          --pkg-config-flags=--static
-                          --enable-cross-compile
-                          --enable-pic
-                          --ar=${CMAKE_AR}
-                          --ranlib=${CMAKE_RANLIB}
-                          --strip=${CMAKE_STRIP}
-              )
-  message(STATUS "CROSS: ${ffmpeg_conf}")
-endif()
+# Set PKG_CONFIG_PATH to include VA-API location
+export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib64/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH}"
+echo "[FFmpeg Configure Wrapper] New PKG_CONFIG_PATH: ${PKG_CONFIG_PATH}" >&2
 
-set(CONFIGARCH --arch=${CPU})
+# Test if we can find VA-API now
+echo "[FFmpeg Configure Wrapper] Testing VA-API detection:" >&2
+if pkg-config --exists libva; then
+    echo "[FFmpeg Configure Wrapper] SUCCESS: Found libva version $(pkg-config --modversion libva)" >&2
+    echo "[FFmpeg Configure Wrapper] libva libs: $(pkg-config --libs libva)" >&2
+else
+    echo "[FFmpeg Configure Wrapper] ERROR: Cannot find libva!" >&2
+    echo "[FFmpeg Configure Wrapper] Searching for libva.pc:" >&2
+    find /usr -name "libva.pc" 2>/dev/null | head -5 >&2
+fi
 
-list(APPEND ffmpeg_conf --disable-doc
-                        --disable-devices
-                        --disable-programs
-                        --disable-sdl2
-                        --disable-vulkan
-                        --enable-gpl
-                        --enable-postproc
-                        --enable-runtime-cpudetect
-                        --enable-pthreads
-                        --extra-version="Kodi"
-            )
-
-if(CMAKE_C_FLAGS)
-  list(APPEND ffmpeg_conf --extra-cflags=${CMAKE_C_FLAGS})
-endif()
-
-if(CMAKE_CXX_FLAGS)
-  list(APPEND ffmpeg_conf --extra-cxxflags=${CMAKE_CXX_FLAGS})
-endif()
-
-if(CMAKE_EXE_LINKER_FLAGS)
-  list(APPEND ffmpeg_conf --extra-ldflags=${CMAKE_EXE_LINKER_FLAGS})
-endif()
-
-if(ENABLE_NEON)
-  list(APPEND ffmpeg_conf --enable-neon)
-endif()
-
-if(CMAKE_BUILD_TYPE STREQUAL Release)
-  list(APPEND ffmpeg_conf --disable-debug)
-endif()
-
-if(CORE_SYSTEM_NAME STREQUAL linux OR CORE_SYSTEM_NAME STREQUAL freebsd)
-  list(APPEND ffmpeg_conf --enable-pic
-                          --target-os=linux
-              )
-  if(ENABLE_VAAPI)
-    list(APPEND ffmpeg_conf --enable-vaapi)
-  else()
-    list(APPEND ffmpeg_conf --disable-vaapi)
-  endif()
-  if(ENABLE_VDPAU)
-    list(APPEND ffmpeg_conf --enable-vdpau)
-  else()
-    list(APPEND ffmpeg_conf --disable-vdpau)
-  endif()
-elseif(CORE_SYSTEM_NAME STREQUAL android)
-  list(APPEND ffmpeg_conf --target-os=android
-                          --extra-libs=-liconv
-                          --disable-linux-perf
-              )
-  if(CPU MATCHES arm64)
-    set(CONFIGARCH --arch=aarch64)
-    list(APPEND ffmpeg_conf --cpu=cortex-a53)
-  elseif(CPU MATCHES arm)
-    list(APPEND ffmpeg_conf --cpu=cortex-a9)
-  elseif(CPU MATCHES x86_64)
-    list(APPEND ffmpeg_conf --cpu=x86_64)
-    list(APPEND ffmpeg_conf --extra-cflags=-mno-stackrealign)
-  else()
-    list(APPEND ffmpeg_conf --cpu=i686 --disable-mmx --disable-asm)
-    list(APPEND ffmpeg_conf --extra-cflags=-mno-stackrealign)
-  endif()
-elseif(CORE_SYSTEM_NAME STREQUAL darwin_embedded)
-  list(APPEND ffmpeg_conf --enable-videotoolbox
-                          --disable-filter=yadif_videotoolbox
-                          --target-os=darwin
-              )
-elseif(CORE_SYSTEM_NAME STREQUAL osx)
-  list(APPEND ffmpeg_conf --enable-videotoolbox
-                          --target-os=darwin
-                          --disable-securetransport
-              )
-endif()
-
-if(CPU MATCHES arm)
-  list(APPEND ffmpeg_conf --disable-armv5te --disable-armv6t2)
-elseif(CPU MATCHES mips)
-  list(APPEND ffmpeg_conf --disable-mips32r2 --disable-mipsdsp --disable-mipsdspr2)
-endif()
-
-find_package(GnuTLS)
-if(GNUTLS_FOUND)
-  list(APPEND ffmpeg_conf --enable-gnutls)
-endif()
-
-if(CPU MATCHES x86 OR CPU MATCHES x86_64)
-  find_package(NASM REQUIRED)
-  list(APPEND ffmpeg_conf --x86asmexe=${NASM_EXECUTABLE})
-endif()
-
-if(USE_LTO)
-   list(APPEND ffmpeg_conf --enable-lto)
-endif()
-
-if(ENABLE_DAV1D)
-  list(APPEND ffmpeg_conf --enable-libdav1d)
-else()
-  list(APPEND ffmpeg_conf --disable-libdav1d)
-endif()
-
-if(EXTRA_FLAGS)
-  string(REPLACE " " ";" EXTRA_FLAGS ${EXTRA_FLAGS})
-  list(APPEND ffmpeg_conf ${EXTRA_FLAGS})
-endif()
-
-list(APPEND ffmpeg_conf ${CONFIGARCH})
-
-message(STATUS "FFMPEG_CONF: ${ffmpeg_conf}")
-
-set(MAKE_COMMAND $(MAKE))
-if(CMAKE_GENERATOR STREQUAL Ninja)
-  set(MAKE_COMMAND make)
-  include(ProcessorCount)
-  ProcessorCount(N)
-  if(NOT N EQUAL 0)
-    set(MAKE_COMMAND make -j${N})
-  endif()
-endif()
-
-# Set up environment variables for FFmpeg configure
-# This is crucial for finding VA-API and other system libraries
-set(FFMPEG_CONFIGURE_ENV "")
-
-# Always pass PKG_CONFIG_PATH from parent environment or set a sensible default
-if(DEFINED ENV{PKG_CONFIG_PATH})
-  set(FFMPEG_PKG_CONFIG_PATH "$ENV{PKG_CONFIG_PATH}")
-else()
-  set(FFMPEG_PKG_CONFIG_PATH "/usr/lib64/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig")
-endif()
-
-# For native builds, ensure we can find system libraries
-if(NOT CROSSCOMPILING)
-  list(APPEND FFMPEG_CONFIGURE_ENV "PKG_CONFIG_PATH=${FFMPEG_PKG_CONFIG_PATH}")
-endif()
-
-include(ExternalProject)
-externalproject_add(ffmpeg
-                    SOURCE_DIR ${CMAKE_SOURCE_DIR}
-                    CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env ${FFMPEG_CONFIGURE_ENV}
-                      <SOURCE_DIR>/configure
-                      --prefix=${CMAKE_INSTALL_PREFIX}
-                      --extra-version="kodi-${FFMPEG_VER}"
-                      ${ffmpeg_conf}
-                    BUILD_COMMAND ${MAKE_COMMAND})
-
-install(CODE "Message(Done)")
-
-# Quell warnings
-set(BUILD_SHARED_LIBS)
-set(XBMC_BUILD_DIR)
-set(KODI_BUILD_DIR)
+# Run the actual configure script
+echo "[FFmpeg Configure Wrapper] Running configure..." >&2
+exec "$@"
 EOF
+        chmod +x "$configure_wrapper"
 
-        # Replace the original file
-        mv "${cmake_file}.new" "${cmake_file}"
+        # Now patch the CMakeLists.txt to use our wrapper
+        # This is simpler and more reliable than trying to pass environment through CMake
+        sed -i "s|<SOURCE_DIR>/configure|${configure_wrapper} <SOURCE_DIR>/configure|g" "$cmake_file"
 
-        log_success "FFmpeg CMakeLists.txt patched with proper environment handling"
+        log_success "FFmpeg CMakeLists.txt patched with configure wrapper"
+        log_info "Configure wrapper created at: $configure_wrapper"
     else
         log_error "FFmpeg CMakeLists.txt not found at expected location"
     fi
@@ -405,7 +256,11 @@ configure_build() {
     local cmake_args=("${KODI_CMAKE_ARGS[@]}")
 
     # Ensure VA-API is discoverable for internal FFmpeg
-    export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH:-}"
+    export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
+    echo "Testing pkg-config with: $PKG_CONFIG_PATH"
+    pkg-config --exists libva && echo "libva found!" || echo "libva NOT found"
+    pkg-config --cflags libva
+    pkg-config --libs libva
 
     # IMPORTANT: Pass PKG_CONFIG_PATH to CMake so it reaches FFmpeg
     local system_pkg_config_path="$PKG_CONFIG_PATH"
@@ -486,7 +341,14 @@ build_kodi() {
     if ! cmake --build . --parallel "$num_cores"; then
 
         log_info 'find /tmp/kodi-build -name "config.log" -path "*ffmpeg*" 2>/dev/null | xargs tail -800'
-        find /tmp/kodi-build -name "config.log" -path "*ffmpeg*" 2>/dev/null | xargs tail -100
+        find /tmp/kodi-build -name "config.log" -path "*ffmpeg*" 2>/dev/null | xargs tail -1500
+
+         log_info '"config.log" vaapi'
+        find /tmp/kodi-build -name "config.log" -path "*ffmpeg*" 2>/dev/null | while read log; do
+            echo "=== $log ==="
+            # Show the last 200 lines which should include the VA-API check
+            tail -200 "$log" | grep -A 50 -B 50 "vaapi" || tail -100 "$log"
+        done
 
         log_info "cat /tmp/kodi-source/tools/depends/target/ffmpeg/CMakeLists.txt"
         cat /tmp/kodi-source/tools/depends/target/ffmpeg/CMakeLists.txt
