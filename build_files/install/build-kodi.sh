@@ -18,7 +18,6 @@ prepare_build_environment() {
 
 clone_kodi_source() {
     log_info "Cloning Kodi source code..."
-    # "$--depth 1 -b KODI_BRANCH"
     if ! git clone "$KODI_REPO" "$SOURCE_DIR"; then
         die "Failed to clone Kodi repository"
     fi
@@ -26,79 +25,169 @@ clone_kodi_source() {
     log_success "Source code cloned successfully"
 }
 
+debug_vaapi_setup() {
+    log_info "=== VA-API Debug Information ==="
 
-debug_ffmpeg_installation() {
-       # Debug: Check for pkg-config files
-    log_info "Checking for FFmpeg pkg-config files..."
-    find /usr -name "libavcodec.pc" 2>/dev/null || log_warning "libavcodec.pc not found"
-    find /usr -name "ffmpeg.pc" 2>/dev/null || log_warning "ffmpeg.pc not found"
+    # Test pkg-config with various paths
+    log_info "Testing pkg-config paths..."
 
-    # Check what ffmpeg-devel installed
-    log_info "Files installed by ffmpeg-devel:"
-    rpm -ql ffmpeg-devel | grep -E "(\.pc|include)" | head -20
+    # Test default pkg-config
+    log_info "Default pkg-config test:"
+    pkg-config --version || log_error "pkg-config not found!"
+    pkg-config --variable pc_path pkg-config || log_error "Cannot get pkg-config paths"
 
-    # Set up pkg-config path - negativo17 might use different locations
-    export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH:-}"
+    # Test with our paths
+    export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
+    log_info "With PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
 
-    # If negativo17 uses a different structure, add their paths
-    if [ -d "/usr/lib64/ffmpeg/pkgconfig" ]; then
-        export PKG_CONFIG_PATH="/usr/lib64/ffmpeg/pkgconfig:${PKG_CONFIG_PATH}"
+    if pkg-config --exists libva; then
+        log_success "libva found by pkg-config!"
+        log_info "libva version: $(pkg-config --modversion libva)"
+        log_info "libva cflags: $(pkg-config --cflags libva)"
+        log_info "libva libs: $(pkg-config --libs libva)"
+    else
+        log_error "libva NOT found by pkg-config"
+
+        # Try to find libva.pc manually
+        log_info "Searching for libva.pc files:"
+        find /usr -name "libva.pc" -type f 2>/dev/null | while read pc; do
+            log_info "  Found: $pc"
+            log_info "  Contents:"
+            cat "$pc" | head -10
+        done
     fi
 
-    # Debug: Show pkg-config search
-    log_info "PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
-    log_info "Searching for libavcodec with pkg-config..."
-    pkg-config --exists libavcodec && pkg-config --modversion libavcodec || log_warning "libavcodec not found by pkg-config"
+    # Check for VA-API headers
+    log_info "Checking for VA-API headers:"
+    if [ -f "/usr/include/va/va.h" ]; then
+        log_success "Found /usr/include/va/va.h"
+    else
+        log_error "Missing /usr/include/va/va.h"
+        find /usr -name "va.h" -path "*/va/*" 2>/dev/null | head -5
+    fi
 
-    log_info "Finding FFmpeg headers..."
-    find /usr/include -name "avcodec.h" 2>/dev/null || log_warning "avcodec.h not found in /usr/include"
+    # Check for VA-API libraries
+    log_info "Checking for VA-API libraries:"
+    for lib in /usr/lib64/libva.so /usr/lib/libva.so; do
+        if [ -e "$lib" ]; then
+            log_success "Found $lib"
+            log_info "  Links to: $(readlink -f "$lib")"
+        fi
+    done
 
-    log_info "Finding FFmpeg libraries..."
-    ls -la /usr/lib64/libav* 2>/dev/null | head -10
+    log_info "=== End VA-API Debug ==="
+}
 
+patch_ffmpeg_cmake() {
+    local cmake_file="$SOURCE_DIR/tools/depends/target/ffmpeg/CMakeLists.txt"
 
-    log_info "=== FFmpeg Installation Debug ==="
+    if [ -f "$cmake_file" ]; then
+        log_info "Patching FFmpeg CMakeLists.txt to fix VA-API detection..."
 
-    # Check what ffmpeg packages are installed
-    log_info "Installed FFmpeg packages:"
-    rpm -qa | grep -i ffmpeg || true
+        # Create a wrapper script that will capture debug info
+        local wrapper_dir="$BUILD_DIR/wrappers"
+        mkdir -p "$wrapper_dir"
 
-    # Find actual FFmpeg libraries (not avahi)
-    log_info "Finding libavcodec libraries:"
-    find /usr -name "libavcodec.so*" 2>/dev/null || log_warning "libavcodec.so not found"
+        # Create pkg-config wrapper
+        cat > "$wrapper_dir/pkg-config" << 'EOF'
+#!/bin/bash
+# Debug wrapper for pkg-config
+echo "[PKG-CONFIG-WRAPPER] Called with args: $@" >&2
+echo "[PKG-CONFIG-WRAPPER] PKG_CONFIG_PATH: ${PKG_CONFIG_PATH}" >&2
 
-    # Check library locations from rpm
-    log_info "Libraries from ffmpeg package:"
-    rpm -ql ffmpeg | grep -E "\.so" || true
+# Set paths if not already set
+if [ -z "$PKG_CONFIG_PATH" ]; then
+    export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib64/pkgconfig:/usr/share/pkgconfig"
+    echo "[PKG-CONFIG-WRAPPER] Set PKG_CONFIG_PATH to: $PKG_CONFIG_PATH" >&2
+fi
 
-    log_info "Libraries from ffmpeg-libs (if installed):"
-    rpm -ql ffmpeg-libs 2>/dev/null | grep -E "\.so" || log_info "ffmpeg-libs not installed"
+# Run the real pkg-config
+exec /usr/bin/pkg-config "$@"
+EOF
+        chmod +x "$wrapper_dir/pkg-config"
 
-    # Check for headers in all possible locations
-    log_info "All files from ffmpeg-devel containing 'avcodec':"
-    rpm -ql ffmpeg-devel | grep avcodec || true
+        # Create configure wrapper to capture more debug info
+        cat > "$wrapper_dir/configure-wrapper" << 'EOF'
+#!/bin/bash
+echo "=== FFMPEG CONFIGURE DEBUG ===" >&2
+echo "Current directory: $(pwd)" >&2
+echo "Configure args: $@" >&2
+echo "Environment PKG_CONFIG_PATH: ${PKG_CONFIG_PATH}" >&2
+echo "PATH: ${PATH}" >&2
 
-    # Check if headers are in a subdirectory
-    log_info "Searching for FFmpeg headers in all of /usr:"
-    find /usr -name "avcodec.h" -type f 2>/dev/null || log_warning "avcodec.h not found anywhere"
+# Ensure pkg-config can find VA-API
+export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib64/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH}"
+echo "Set PKG_CONFIG_PATH to: ${PKG_CONFIG_PATH}" >&2
 
-    # List all directories created by ffmpeg-devel
-    log_info "Directories created by ffmpeg-devel:"
-    rpm -ql ffmpeg-devel | grep -E "/$" | sort -u || true
+# Test VA-API before running configure
+echo "Pre-configure VA-API test:" >&2
+if pkg-config --exists libva; then
+    echo "  VA-API found! Version: $(pkg-config --modversion libva)" >&2
+    echo "  Cflags: $(pkg-config --cflags libva)" >&2
+    echo "  Libs: $(pkg-config --libs libva)" >&2
+else
+    echo "  VA-API NOT FOUND by pkg-config!" >&2
+fi
 
-    log_info "Checking for ffmpeg command location and libs it uses:"
-    which ffmpeg
-    ldd $(which ffmpeg) | grep -E "libav|libsw" || true
+# Run configure and capture its output
+echo "=== Running FFmpeg configure ===" >&2
+"$1" "${@:2}" 2>&1 | tee /tmp/ffmpeg-configure.log
 
-    log_info "=== End FFmpeg Debug ==="
+# Save the exit code
+RESULT=$?
+
+# If configure failed, show the relevant part of config.log
+if [ $RESULT -ne 0 ]; then
+    echo "=== Configure failed, showing config.log ===" >&2
+    if [ -f "ffbuild/config.log" ]; then
+        echo "=== Last 200 lines of config.log ===" >&2
+        tail -200 ffbuild/config.log >&2
+
+        echo "=== VA-API specific checks from config.log ===" >&2
+        grep -A 10 -B 10 -i vaapi ffbuild/config.log >&2 || true
+    fi
+fi
+
+exit $RESULT
+EOF
+        chmod +x "$wrapper_dir/configure-wrapper"
+
+        # Now patch the CMakeLists.txt
+        # First, add the wrapper directory to PATH for the build
+        sed -i "/include(ExternalProject)/i\\
+# Add wrapper directory to PATH for debugging\\
+set(ENV{PATH} \"$wrapper_dir:\$ENV{PATH}\")\\
+" "$cmake_file"
+
+        # Replace the configure command to use our wrapper
+        sed -i "s|<SOURCE_DIR>/configure|$wrapper_dir/configure-wrapper <SOURCE_DIR>/configure|g" "$cmake_file"
+
+        # Also ensure pkg-config wrapper is used
+        sed -i "/list(APPEND ffmpeg_conf \${CONFIGARCH})/a\\
+\\
+# Ensure pkg-config can find system libraries\\
+if(NOT CROSSCOMPILING)\\
+  list(APPEND ffmpeg_conf --pkg-config=$wrapper_dir/pkg-config)\\
+endif()\\
+" "$cmake_file"
+
+        log_success "FFmpeg CMakeLists.txt patched with debug wrappers"
+    else
+        log_error "FFmpeg CMakeLists.txt not found at expected location"
+    fi
 }
 
 configure_build() {
     log_info "Configuring Kodi build for HDR support..."
-    
+
+    # Debug VA-API setup before starting
+    debug_vaapi_setup
+
+    # Apply the patch
+    patch_ffmpeg_cmake
+
     mkdir -p "$BUILD_DIR"
     cd "$BUILD_DIR"
-
 
     # Verify GBM support before proceeding
     if [[ "$SYSTEM_FEATURES" != *"gbm"* ]]; then
@@ -112,6 +201,11 @@ configure_build() {
     # Use the HDR-specific CMake arguments (no modifications)
     local cmake_args=("${KODI_CMAKE_ARGS[@]}")
 
+    # Ensure VA-API is discoverable
+    export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH:-}"
+
+    log_info "PKG_CONFIG_PATH for build: $PKG_CONFIG_PATH"
+
     # Log configuration for HDR
     log_info "Building with HDR-optimized configuration:"
     log_info "  Platform: GBM (required for HDR)"
@@ -122,40 +216,29 @@ configure_build() {
     log_info "CMake arguments:"
     printf '%s\n' "${cmake_args[@]}" | sed 's/^/  /'
 
-    # Run cmake - NO FALLBACKS
+    # Run cmake
     if ! cmake "$SOURCE_DIR" "${cmake_args[@]}"; then
         log_error "CMake configuration failed"
-        log_error "This is a strict HDR build - no fallbacks available"
         die "Cannot proceed without HDR configuration"
     fi
 
     log_info "Verifying CMake configuration..."
 
-    # Check GBM platform - match any cache entry type
+    # Check GBM platform
     if ! grep -q -E "^CORE_PLATFORM_NAME:[A-Z]+=gbm" CMakeCache.txt; then
-        log_error "GBM platform not found in CMakeCache.txt"
-        log_error "Looking for: CORE_PLATFORM_NAME:*=gbm"
-        log_error "Found:"
-        grep "CORE_PLATFORM_NAME" CMakeCache.txt || echo "  (not found)"
+        log_error "GBM platform not configured correctly"
         die "Build misconfigured: GBM platform not set"
     else
         log_success "GBM platform verified"
     fi
 
-    # Check GLES render system - match any cache entry type
+    # Check GLES render system
     if ! grep -q -E "^APP_RENDER_SYSTEM:[A-Z]+=gles" CMakeCache.txt; then
-        log_error "GLES render system not found in CMakeCache.txt"
-        log_error "Looking for: APP_RENDER_SYSTEM:*=gles"
-        log_error "Found:"
-        grep "APP_RENDER_SYSTEM" CMakeCache.txt || echo "  (not found)"
+        log_error "GLES render system not configured correctly"
         die "Build misconfigured: GLES render system not set"
     else
         log_success "GLES render system verified"
     fi
-
-    # Optional: Log what we actually found for debugging
-    log_info "Build configuration confirmed:"
-    grep -E "^(CORE_PLATFORM_NAME|APP_RENDER_SYSTEM):" CMakeCache.txt | sed 's/^/  /'
 
     BUILD_FEATURES="gbm gles vaapi hdr"
     echo "$BUILD_FEATURES" > /tmp/kodi-build-features-final.tmp
@@ -163,6 +246,7 @@ configure_build() {
     log_success "HDR build configured successfully"
 }
 
+# Rest of the functions remain the same...
 build_kodi() {
     log_info "Building Kodi with HDR support..."
 
@@ -172,19 +256,13 @@ build_kodi() {
     log_info "Building with $num_cores parallel jobs..."
 
     if ! cmake --build . --parallel "$num_cores"; then
-
-         log_info '"config.log" vaapi'
-        find /tmp/kodi-build -name "config.log" -path "*ffmpeg*" 2>/dev/null | while read log; do
-            echo "=== $log ==="
-            # Show the last 200 lines which should include the VA-API check
-            tail -200 "$log" | grep -A 50 -B 50 "vaapi" || tail -100 "$log"
-        done
-
-        log_info "cat /tmp/kodi-source/tools/depends/target/ffmpeg/CMakeLists.txt"
-        cat /tmp/kodi-source/tools/depends/target/ffmpeg/CMakeLists.txt
+        # If build fails, try to show any captured logs
+        if [ -f "/tmp/ffmpeg-configure.log" ]; then
+            log_error "FFmpeg configure output:"
+            cat /tmp/ffmpeg-configure.log
+        fi
 
         die "Build failed - HDR build requirements not met"
-
     fi
 
     log_success "HDR build completed successfully"
@@ -199,7 +277,6 @@ install_kodi() {
         die "Installation failed"
     fi
 
-    # Verify HDR-capable binary was installed
     if [ ! -f "${KODI_PREFIX}/bin/kodi-gbm" ]; then
         die "kodi-gbm binary not found - HDR build failed"
     fi
@@ -210,16 +287,13 @@ install_kodi() {
 setup_kodi_user() {
     log_info "Setting up Kodi user for HDR..."
 
-    # Create kodi user if it doesn't exist
     if ! id "$KODI_USER" >/dev/null 2>&1; then
         useradd -r -d "$KODI_HOME" -s /bin/bash "$KODI_USER"
         log_success "Created user: $KODI_USER"
     fi
 
-    # Add to required groups for HDR/DRM access
     usermod -a -G render,video,input,audio "$KODI_USER"
 
-    # Create home directory
     ensure_dir "$KODI_HOME"
     chown -R "$KODI_USER:$KODI_USER" "$KODI_HOME"
 }
@@ -239,7 +313,6 @@ install_kodi_standalone_service() {
         die "Failed to install kodi-standalone-service"
     fi
 
-    # Run required commands
     systemd-sysusers
     systemd-tmpfiles --create
 
@@ -249,7 +322,6 @@ install_kodi_standalone_service() {
 
 # Main execution
 main() {
-    #prepare_build_environment
     clone_kodi_source
     configure_build
     build_kodi
