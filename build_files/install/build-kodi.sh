@@ -181,7 +181,32 @@ testing(){
         fi
     fi
 
-        # Use internal FFmpeg due to Bazzite's non-standard packaging
+}
+
+configure_build() {
+    log_info "Configuring Kodi build for HDR support..."
+    
+
+    verify_vaapi_installation
+    testing
+
+    mkdir -p "$BUILD_DIR"
+    cd "$BUILD_DIR"
+
+    # Verify GBM support before proceeding
+    if [[ "$SYSTEM_FEATURES" != *"gbm"* ]]; then
+        die "GBM support is required for HDR but was not detected"
+    fi
+
+    if [[ "$SYSTEM_FEATURES" != *"gles"* ]]; then
+        die "GLES support is required for HDR but was not detected"
+    fi
+
+
+
+
+
+            # Use internal FFmpeg due to Bazzite's non-standard packaging
     log_info "Using internal FFmpeg build (Bazzite compatibility)"
 
 
@@ -217,26 +242,8 @@ testing(){
         log_warning "VA-API may not be available in internal FFmpeg"
     fi
 
-}
 
-configure_build() {
-    log_info "Configuring Kodi build for HDR support..."
-    
 
-    verify_vaapi_installation
-    testing
-
-    mkdir -p "$BUILD_DIR"
-    cd "$BUILD_DIR"
-
-    # Verify GBM support before proceeding
-    if [[ "$SYSTEM_FEATURES" != *"gbm"* ]]; then
-        die "GBM support is required for HDR but was not detected"
-    fi
-
-    if [[ "$SYSTEM_FEATURES" != *"gles"* ]]; then
-        die "GLES support is required for HDR but was not detected"
-    fi
 
     # Use the HDR-specific CMake arguments (no modifications)
     #local cmake_args=("${KODI_CMAKE_ARGS[@]}")
