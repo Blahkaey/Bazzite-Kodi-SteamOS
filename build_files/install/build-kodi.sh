@@ -18,8 +18,8 @@ prepare_build_environment() {
 
 clone_kodi_source() {
     log_info "Cloning Kodi source code..."
-    # "$KODI_BRANCH"
-    if ! git clone --depth 1 -b "$KODI_REPO" "$SOURCE_DIR"; then
+    # "$--depth 1 -b KODI_BRANCH"
+    if ! git clone "$KODI_REPO" "$SOURCE_DIR"; then
         die "Failed to clone Kodi repository"
     fi
 
