@@ -283,7 +283,7 @@ main() {
     cat /etc/yum.repos.d/negativo17-fedora-multimedia.repo
 
 
-    dnf5 install -y compat-ffmpeg7-devel
+    dnf5 install -y ffmpeg ffmpeg-devel --repo fedora-multimedia
 
 
     # Verify HDR requirements
