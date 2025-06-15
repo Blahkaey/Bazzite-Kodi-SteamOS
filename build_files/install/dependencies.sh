@@ -274,6 +274,7 @@ main() {
 
     if [ -n "$vaapi_pc_path" ]; then
         log_info "Found VA-API pkg-config in: $vaapi_pc_path"
+    fi
 
     # Verify HDR requirements
     verify_hdr_requirements || die "HDR requirement verification failed"
