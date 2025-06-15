@@ -181,8 +181,6 @@ testing(){
         fi
     fi
 
-
-
 }
 
 configure_build() {
@@ -206,6 +204,26 @@ configure_build() {
 
     # Use the HDR-specific CMake arguments (no modifications)
     local cmake_args=("${KODI_CMAKE_ARGS[@]}")
+
+    # Ensure VA-API is discoverable for internal FFmpeg
+    export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH:-}"
+
+    # IMPORTANT: Pass PKG_CONFIG_PATH to CMake so it reaches FFmpeg
+    local system_pkg_config_path="$PKG_CONFIG_PATH"
+
+    # Set up for internal FFmpeg with VA-API
+    local cmake_args=("${KODI_CMAKE_ARGS[@]}")
+    cmake_args+=("-DPKG_CONFIG_PATH=${system_pkg_config_path}")
+
+    # Verify VA-API before building
+    if pkg-config --exists libva libdrm; then
+        log_success "VA-API dependencies found for internal FFmpeg"
+        log_info "libva version: $(pkg-config --modversion libva)"
+        log_info "libva cflags: $(pkg-config --cflags libva)"
+        log_info "libva libs: $(pkg-config --libs libva)"
+    else
+        log_warning "VA-API may not be available in internal FFmpeg"
+    fi
 
     # Log configuration for HDR
     log_info "Building with HDR-optimized configuration:"
@@ -271,6 +289,17 @@ build_kodi() {
             log_error "FFmpeg config.log contents:"
             tail -50 /tmp/kodi-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src/ffmpeg/ffbuild/config.log
         fi
+        ls -l /tmp
+        ls -l /tmp/kodi-build
+        ls -l /tmp/kodi-build/build
+        ls -l /tmp/kodi-build/build/build-ffmpeg
+        ls -l /tmp/kodi-build/build/build-ffmpeg/src
+        ls -l /tmp/kodi-build/build/build-ffmpeg/src/build-ffmpeg-build
+        ls -l /tmp/kodi-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix
+        ls -l /tmp/kodi-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src
+        ls -l /tmp/kodi-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src/ffmpeg
+        ls -l /tmp/kodi-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src/ffmpeg/ffbuild/
+
         die "Build failed - HDR build requirements not met"
     fi
 
