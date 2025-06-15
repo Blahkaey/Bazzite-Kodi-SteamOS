@@ -181,6 +181,8 @@ testing(){
         fi
     fi
 
+
+
 }
 
 configure_build() {
@@ -201,49 +203,6 @@ configure_build() {
     if [[ "$SYSTEM_FEATURES" != *"gles"* ]]; then
         die "GLES support is required for HDR but was not detected"
     fi
-
-
-
-
-
-            # Use internal FFmpeg due to Bazzite's non-standard packaging
-    log_info "Using internal FFmpeg build (Bazzite compatibility)"
-
-
-    # Ensure VA-API is discoverable for internal FFmpeg
-    export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH:-}"
-
-    # IMPORTANT: Pass PKG_CONFIG_PATH to CMake so it reaches FFmpeg
-    local system_pkg_config_path="$PKG_CONFIG_PATH"
-
-    # Set up for internal FFmpeg with VA-API
-    local cmake_args=("${KODI_CMAKE_ARGS[@]}")
-    cmake_args+=("-DENABLE_INTERNAL_FFMPEG=ON")
-
-    # Configure FFmpeg build flags - need to help it find VA-API
-    local ffmpeg_flags="--enable-vaapi --enable-libdrm"
-
-    # Add pkg-config path for FFmpeg
-    ffmpeg_flags+=" --pkg-config-flags=--static"
-    ffmpeg_flags+=" --extra-cflags=-I/usr/include"
-    ffmpeg_flags+=" --extra-ldflags=-L/usr/lib64"
-
-    # Most important: tell FFmpeg where to find pkg-config files
-    cmake_args+=("-DFFMPEG_EXTRA_FLAGS=${ffmpeg_flags}")
-    cmake_args+=("-DPKG_CONFIG_PATH=${system_pkg_config_path}")
-
-    # Verify VA-API before building
-    if pkg-config --exists libva libdrm; then
-        log_success "VA-API dependencies found for internal FFmpeg"
-        log_info "libva version: $(pkg-config --modversion libva)"
-        log_info "libva cflags: $(pkg-config --cflags libva)"
-        log_info "libva libs: $(pkg-config --libs libva)"
-    else
-        log_warning "VA-API may not be available in internal FFmpeg"
-    fi
-
-
-
 
     # Use the HDR-specific CMake arguments (no modifications)
     #local cmake_args=("${KODI_CMAKE_ARGS[@]}")
