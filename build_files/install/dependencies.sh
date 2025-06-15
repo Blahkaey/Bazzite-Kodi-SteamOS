@@ -270,17 +270,17 @@ main() {
     log_info 'dnf5 repolist'
     dnf5 repolist
 
-    log_info 'dnf5 install https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm'
-    dnf5 install https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
+    log_info 'dnf5 config-manager setopt rpmfusion-free.enabled=1'
+    dnf5 config-manager setopt rpmfusion-free.enabled=1
+    log_info 'dnf5 config-manager setopt rpmfusion-nonfree.enabled=1'
+    dnf5 config-manager setopt rpmfusion-nonfree.enabled=1
 
-    log_info 'dnf5 install https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm'
-    dnf5 install https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
+    log_info 'dnf5 repolist'
+    dnf5 repolist
 
 
-    log_info 'dnf5 swap ffmpeg-free ffmpeg --allowerasing'
-    dnf5 swap ffmpeg-free ffmpeg --allowerasing
-    log_info 'dnf5 swap ffmpeg-free-devel ffmpeg-devel --allowerasing'
-    dnf5 swap ffmpeg-free-devel ffmpeg-devel --allowerasing
+    log_info 'dnf5 install ffmpeg-devel libavcodec-devel libavformat-devel libavutil-devel libswscale-devel libswresample-devel libavfilter-devel libpostproc-devel'
+    dnf5 install ffmpeg-devel libavcodec-devel libavformat-devel libavutil-devel libswscale-devel libswresample-devel libavfilter-devel libpostproc-devel
 
 
 
