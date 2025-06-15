@@ -256,7 +256,7 @@ configure_build() {
     # Apply the patch
     patch_ffmpeg_cmake
 
-    mkdir -p '/usr/local/lib64/kodi'
+    mkdir '/usr/local/lib64/kodi'
     mkdir -p "$BUILD_DIR"
 
     cd "$BUILD_DIR"
