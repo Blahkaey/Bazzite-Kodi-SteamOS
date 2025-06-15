@@ -93,11 +93,63 @@ debug_ffmpeg_installation() {
     log_info "=== End FFmpeg Debug ==="
 }
 
+verify_vaapi_installation() {
+    log_info "Verifying VA-API installation for FFmpeg..."
+
+    # Check where VA-API libraries are installed
+    local vaapi_lib_paths=()
+    local vaapi_pc_paths=()
+
+    # Find libva.so
+    for lib in /usr/lib64/libva.so /usr/lib/libva.so /usr/local/lib64/libva.so /usr/local/lib/libva.so; do
+        if [ -f "$lib" ] || [ -L "$lib" ]; then
+            vaapi_lib_paths+=("$(dirname "$lib")")
+            log_info "Found libva.so in: $(dirname "$lib")"
+        fi
+    done
+
+    # Find libva.pc
+    for pc in /usr/lib64/pkgconfig/libva.pc /usr/lib/pkgconfig/libva.pc /usr/share/pkgconfig/libva.pc; do
+        if [ -f "$pc" ]; then
+            vaapi_pc_paths+=("$(dirname "$pc")")
+            log_info "Found libva.pc in: $(dirname "$pc")"
+        fi
+    done
+
+    # Create symlinks if needed (Bazzite might have libraries in non-standard locations)
+    if [ ${#vaapi_lib_paths[@]} -gt 0 ] && [ ! -f "/usr/lib64/libva.so" ]; then
+        log_info "Creating compatibility symlinks for VA-API..."
+
+        # Find the actual library
+        local src_lib="${vaapi_lib_paths[0]}/libva.so"
+        if [ -L "$src_lib" ]; then
+            # Follow symlink to get the actual library
+            src_lib=$(readlink -f "$src_lib")
+        fi
+
+        # Create symlinks in standard location
+        if [ -f "$src_lib" ]; then
+            ln -sf "$src_lib" /usr/lib64/libva.so 2>/dev/null || true
+            ln -sf "${src_lib}.2" /usr/lib64/libva.so.2 2>/dev/null || true
+            log_info "Created VA-API symlinks in /usr/lib64"
+        fi
+    fi
+
+    # Export paths for FFmpeg
+    if [ ${#vaapi_pc_paths[@]} -gt 0 ]; then
+        export VAAPI_PC_PATH="${vaapi_pc_paths[0]}"
+        log_info "VA-API pkg-config path: $VAAPI_PC_PATH"
+    fi
+
+    # Verify VA-API is functional
+    if command -v vainfo >/dev/null 2>&1; then
+        log_info "VA-API info:"
+        vainfo 2>&1 | head -5 || log_warning "vainfo failed - VA-API might not be fully functional"
+    fi
+}
 
 testing(){
 
-    log_info 'ls /usr/lib64/pkgconfig'
-    ls /usr/lib64/pkgconfig
     log_info 'ls /usr/lib/pkgconfig'
     ls /usr/lib/pkgconfig
 
@@ -124,7 +176,7 @@ configure_build() {
     log_info "Configuring Kodi build for HDR support..."
     
     testing
-
+    verify_vaapi_installation
     mkdir -p "$BUILD_DIR"
     cd "$BUILD_DIR"
 
