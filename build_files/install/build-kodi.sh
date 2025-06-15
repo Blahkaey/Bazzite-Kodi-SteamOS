@@ -99,37 +99,6 @@ configure_build() {
 
     # Use internal FFmpeg due to Bazzite's non-standard packaging
     log_info "Using internal FFmpeg build (Bazzite compatibility)"
-
-    mkdir -p "$BUILD_DIR"
-    cd "$BUILD_DIR"
-
-    # Ensure VA-API is discoverable for internal FFmpeg
-    export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
-
-    # Set up for internal FFmpeg with VA-API
-    local cmake_args=("${KODI_CMAKE_ARGS[@]}")
-    cmake_args+=("-DENABLE_INTERNAL_FFMPEG=ON")
-
-    # Configure FFmpeg build flags
-    local ffmpeg_flags="--enable-vaapi --enable-libdrm"
-
-    # Add include/lib paths for VA-API
-    ffmpeg_flags+=" --extra-cflags=-I/usr/include"
-    ffmpeg_flags+=" --extra-ldflags=-L/usr/lib64"
-
-    cmake_args+=("-DFFMPEG_EXTRA_FLAGS=${ffmpeg_flags}")
-
-    # Verify VA-API before building
-    if pkg-config --exists libva libdrm; then
-        log_success "VA-API dependencies found for internal FFmpeg"
-    else
-        log_warning "VA-API may not be available in internal FFmpeg"
-    fi
-
-    # Run cmake with internal FFmpeg
-    if ! cmake "$SOURCE_DIR" "${cmake_args[@]}"; then
-        die "CMake configuration failed"
-    fi
     
     mkdir -p "$BUILD_DIR"
     cd "$BUILD_DIR"
@@ -143,8 +112,53 @@ configure_build() {
         die "GLES support is required for HDR but was not detected"
     fi
 
+
+        log_info 'echo $PKG_CONFIG_PATH'
+    echo $PKG_CONFIG_PATH
+
+    # Fix VA-API detection for FFmpeg subprocess
+    # Find where libva.pc is located
+    local vaapi_pc_path=""
+    for dir in /usr/lib64/pkgconfig /usr/lib/pkgconfig /usr/share/pkgconfig /usr/local/lib/pkgconfig; do
+        if [ -f "$dir/libva.pc" ]; then
+            vaapi_pc_path="$dir"
+            break
+        fi
+    done
+
+    if [ -n "$vaapi_pc_path" ]; then
+        log_info "Found VA-API pkg-config in: $vaapi_pc_path"
+        # Export for FFmpeg's configure
+        export PKG_CONFIG_PATH="${PKG_CONFIG_PATH:+$PKG_CONFIG_PATH:}$vaapi_pc_path"
+        log_info "PKG_CONFIG_PATH set to: $PKG_CONFIG_PATH"
+    else
+        log_warning "Could not find libva.pc - FFmpeg VA-API support may fail"
+    fi
+
+    # Also ensure VA-API development headers are visible
+    if [ -d "/usr/include/va" ]; then
+        export C_INCLUDE_PATH="${C_INCLUDE_PATH:+$C_INCLUDE_PATH:}/usr/include"
+        export CPLUS_INCLUDE_PATH="${CPLUS_INCLUDE_PATH:+$CPLUS_INCLUDE_PATH:}/usr/include"
+    fi
+
+
+
+
+
+    log_info 'echo $PKG_CONFIG_PATH'
+    echo $PKG_CONFIG_PATH
+
+
+
+
+
     # Use the HDR-specific CMake arguments (no modifications)
     local cmake_args=("${KODI_CMAKE_ARGS[@]}")
+
+    # Add PKG_CONFIG_PATH to CMake args if set
+    if [ -n "$PKG_CONFIG_PATH" ]; then
+        cmake_args+=("-DPKG_CONFIG_PATH=${PKG_CONFIG_PATH}")
+    fi
 
     # Log configuration for HDR
     log_info "Building with HDR-optimized configuration:"

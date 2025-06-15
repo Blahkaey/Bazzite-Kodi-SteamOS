@@ -259,6 +259,21 @@ main() {
     ls /usr/lib64/pkgconfig
     log_info 'ls /usr/lib/pkgconfig'
     ls /usr/lib/pkgconfig
+    log_info 'echo $PKG_CONFIG_PATH'
+    echo $PKG_CONFIG_PATH
+
+    # Fix VA-API detection for FFmpeg subprocess
+    # Find where libva.pc is located
+    local vaapi_pc_path=""
+    for dir in /usr/lib64/pkgconfig /usr/lib/pkgconfig /usr/share/pkgconfig /usr/local/lib/pkgconfig; do
+        if [ -f "$dir/libva.pc" ]; then
+            vaapi_pc_path="$dir"
+            break
+        fi
+    done
+
+    if [ -n "$vaapi_pc_path" ]; then
+        log_info "Found VA-API pkg-config in: $vaapi_pc_path"
 
     # Verify HDR requirements
     verify_hdr_requirements || die "HDR requirement verification failed"
