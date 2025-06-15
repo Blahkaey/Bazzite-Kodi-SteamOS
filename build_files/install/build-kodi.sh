@@ -28,9 +28,19 @@ clone_kodi_source() {
 
 configure_build() {
     log_info "Configuring Kodi build for HDR support..."
-    export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig:$PKG_CONFIG_PATH"
+    
+    # Set up pkg-config path for FFmpeg to find VA-API
+    export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+    
+    # Ensure VA-API is discoverable
+    if pkg-config --exists libva; then
+        log_info "VA-API found via pkg-config"
+        pkg-config --modversion libva
+    else
+        log_warning "VA-API not found via pkg-config"
+    fi
+    
     mkdir -p "$BUILD_DIR"
-
     cd "$BUILD_DIR"
 
     # Verify GBM support before proceeding
