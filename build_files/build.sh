@@ -9,14 +9,6 @@ source "${SCRIPT_DIR}/lib/logging.sh"
 main() {
     log_section "Kodi HDR Build Process"
 
-    ls -l /usr
-    ls -l /usr/local
-
-    mkdir '/usr/local/lib64'
-
-    ls -l /usr/local/lib64
-    mkdir '/usr/local/lib64/kodi'
-
     # Execute build stages with bash explicitly
     run_stage "Installing dependencies" "/bin/bash ${SCRIPT_DIR}/install/dependencies.sh"
     run_stage "Building Kodi from source" "/bin/bash ${SCRIPT_DIR}/install/build-kodi.sh"

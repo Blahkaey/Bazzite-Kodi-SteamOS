@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Common variables for containerized build
-export KODI_PREFIX="/usr/local"
+export KODI_PREFIX="/usr"
 export KODI_USER="kodi"
 export KODI_HOME="/var/lib/kodi"
 export BUILD_DIR="/tmp/kodi-build"
