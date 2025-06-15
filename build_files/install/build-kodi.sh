@@ -117,36 +117,8 @@ fix_vaapi_for_ffmpeg() {
         if [ -n "$pc_files" ]; then
             log_info "Found libva.pc files:"
             echo "$pc_files"
-
-            # Add the first one to PKG_CONFIG_PATH
-            local pc_dir=$(dirname $(echo "$pc_files" | head -1))
-            export PKG_CONFIG_PATH="${pc_dir}:${PKG_CONFIG_PATH}"
-            log_info "Added $pc_dir to PKG_CONFIG_PATH"
         fi
     fi
-
-    # Create a wrapper script for FFmpeg's configure to use
-    cat > /tmp/fix-ffmpeg-vaapi.sh << 'EOF'
-#!/bin/bash
-# This ensures FFmpeg can find VA-API
-export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib64/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH}"
-export C_INCLUDE_PATH="/usr/include:${C_INCLUDE_PATH}"
-export LIBRARY_PATH="/usr/lib:/usr/lib64:${LIBRARY_PATH}"
-
-# Debug info
-echo "=== FFmpeg VA-API detection helper ===" >&2
-echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH" >&2
-if pkg-config --exists libva 2>/dev/null; then
-    echo "libva found via pkg-config:" >&2
-    echo "  Version: $(pkg-config --modversion libva)" >&2
-    echo "  Cflags: $(pkg-config --cflags libva)" >&2
-    echo "  Libs: $(pkg-config --libs libva)" >&2
-else
-    echo "WARNING: pkg-config cannot find libva!" >&2
-fi
-echo "====================================" >&2
-EOF
-    chmod +x /tmp/fix-ffmpeg-vaapi.sh
 
     # Try creating symlinks if libraries are in /usr/lib but FFmpeg expects /usr/lib64
     if [ -f "/usr/lib/libva.so" ] && [ ! -f "/usr/lib64/libva.so" ]; then
@@ -159,6 +131,10 @@ EOF
 }
 
 testing(){
+
+#[INFO] Found libva.so in: /usr/lib
+#[INFO] Found libva.pc in: /usr/lib/pkgconfig
+
 
     log_info 'ls /usr/lib/pkgconfig'
     ls /usr/lib/pkgconfig
