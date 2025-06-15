@@ -165,7 +165,7 @@ testing(){
             # Take the first one and add its directory to PKG_CONFIG_PATH
             local pc_path
             pc_path=$(dirname "$(printf '%s\n' "$pc_files" | head -n1)")
-            export PKG_CONFIG_PATH="${pc_path}${PKG_CONFIG_PATH:+:}${PKG_CONFIG_PATH}"
+            export PKG_CONFIG_PATH="${pc_path}${PKG_CONFIG_PATH:+:${PKG_CONFIG_PATH}}"
 
             log_info "Prepended '$pc_path' to PKG_CONFIG_PATH:"
             log_info "  PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
@@ -333,8 +333,6 @@ install_kodi_standalone_service() {
 
 # Main execution
 main() {
-    log_subsection "Building Kodi with HDR Support (GBM+GLES+VA-API)"
-
     #prepare_build_environment
     clone_kodi_source
     configure_build
