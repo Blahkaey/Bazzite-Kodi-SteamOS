@@ -255,7 +255,7 @@ main() {
     install_packages "OPTIONAL" false  # Optional, don't fail
     install_packages "SERVICE" true || die "Failed to install service packages"
 
-
+    ffmpeg -version
     dnf5 repolist
 
     dnf5 install https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
@@ -266,7 +266,7 @@ main() {
     dnf5 swap ffmpeg-free ffmpeg --allowerasing
     dnf5 swap ffmpeg-free-devel ffmpeg-devel --allowerasing
 
-
+    ffmpeg -version
 
     # Verify HDR requirements
     verify_hdr_requirements || die "HDR requirement verification failed"
