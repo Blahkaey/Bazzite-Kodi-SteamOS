@@ -183,13 +183,36 @@ testing(){
 
 }
 
+patch_ffmpeg_cmake() {
+    local cmake_file="$SOURCE_DIR/tools/depends/target/ffmpeg/CMakeLists.txt"
+
+    if [ -f "$cmake_file" ]; then
+        log_info "Patching FFmpeg CMakeLists.txt to fix VA-API detection..."
+
+
+        # Fix the PKG_CONFIG_PATH issue
+        sed -i '
+        /if(ENABLE_DAV1D)/,/endif()/ {
+            /set(pkgconf_path/d
+        }
+        /list(APPEND ffmpeg_conf ${CONFIGARCH})/i\
+# Always set PKG_CONFIG_PATH for finding system libraries like VA-API\
+set(pkgconf_path "PKG_CONFIG_PATH=${PKG_CONFIG_PATH}")\
+' "$cmake_file"
+
+        log_success "FFmpeg CMakeLists.txt patched"
+    else
+        log_error "FFmpeg CMakeLists.txt not found at expected location"
+    fi
+}
+
 configure_build() {
     log_info "Configuring Kodi build for HDR support..."
     
 
     verify_vaapi_installation
     testing
-
+    patch_ffmpeg_cmake
     mkdir -p "$BUILD_DIR"
     cd "$BUILD_DIR"
 
