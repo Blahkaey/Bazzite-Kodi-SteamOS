@@ -93,59 +93,69 @@ debug_ffmpeg_installation() {
     log_info "=== End FFmpeg Debug ==="
 }
 
-verify_vaapi_installation() {
-    log_info "Verifying VA-API installation for FFmpeg..."
+fix_vaapi_for_ffmpeg() {
+    log_info "Setting up VA-API for FFmpeg detection..."
 
-    # Check where VA-API libraries are installed
-    local vaapi_lib_paths=()
-    local vaapi_pc_paths=()
+    # FFmpeg's configure looks for va/va.h and libva.so in standard paths
+    # Bazzite might have these in non-standard locations
 
-    # Find libva.so
-    for lib in /usr/lib64/libva.so /usr/lib/libva.so /usr/local/lib64/libva.so /usr/local/lib/libva.so; do
-        if [ -f "$lib" ] || [ -L "$lib" ]; then
-            vaapi_lib_paths+=("$(dirname "$lib")")
-            log_info "Found libva.so in: $(dirname "$lib")"
-        fi
-    done
+    # Check if VA-API headers exist
+    if [ -d "/usr/include/va" ]; then
+        log_success "VA-API headers found in standard location"
+    else
+        log_error "VA-API headers not found in /usr/include/va"
+        # Search for them
+        find /usr -path "*/va/va.h" 2>/dev/null | head -5
+    fi
 
-    # Find libva.pc
-    for pc in /usr/lib64/pkgconfig/libva.pc /usr/lib/pkgconfig/libva.pc /usr/share/pkgconfig/libva.pc; do
-        if [ -f "$pc" ]; then
-            vaapi_pc_paths+=("$(dirname "$pc")")
-            log_info "Found libva.pc in: $(dirname "$pc")"
-        fi
-    done
+    # Ensure libva.pc is accessible
+    if ! pkg-config --exists libva 2>/dev/null; then
+        log_warning "pkg-config cannot find libva, searching for libva.pc..."
 
-    # Create symlinks if needed (Bazzite might have libraries in non-standard locations)
-    if [ ${#vaapi_lib_paths[@]} -gt 0 ] && [ ! -f "/usr/lib64/libva.so" ]; then
-        log_info "Creating compatibility symlinks for VA-API..."
+        # Find all libva.pc files
+        local pc_files=$(find /usr -name "libva.pc" 2>/dev/null)
+        if [ -n "$pc_files" ]; then
+            log_info "Found libva.pc files:"
+            echo "$pc_files"
 
-        # Find the actual library
-        local src_lib="${vaapi_lib_paths[0]}/libva.so"
-        if [ -L "$src_lib" ]; then
-            # Follow symlink to get the actual library
-            src_lib=$(readlink -f "$src_lib")
-        fi
-
-        # Create symlinks in standard location
-        if [ -f "$src_lib" ]; then
-            ln -sf "$src_lib" /usr/lib64/libva.so 2>/dev/null || true
-            ln -sf "${src_lib}.2" /usr/lib64/libva.so.2 2>/dev/null || true
-            log_info "Created VA-API symlinks in /usr/lib64"
+            # Add the first one to PKG_CONFIG_PATH
+            local pc_dir=$(dirname $(echo "$pc_files" | head -1))
+            export PKG_CONFIG_PATH="${pc_dir}:${PKG_CONFIG_PATH}"
+            log_info "Added $pc_dir to PKG_CONFIG_PATH"
         fi
     fi
 
-    # Export paths for FFmpeg
-    if [ ${#vaapi_pc_paths[@]} -gt 0 ]; then
-        export VAAPI_PC_PATH="${vaapi_pc_paths[0]}"
-        log_info "VA-API pkg-config path: $VAAPI_PC_PATH"
+    # Create a wrapper script for FFmpeg's configure to use
+    cat > /tmp/fix-ffmpeg-vaapi.sh << 'EOF'
+#!/bin/bash
+# This ensures FFmpeg can find VA-API
+export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib64/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH}"
+export C_INCLUDE_PATH="/usr/include:${C_INCLUDE_PATH}"
+export LIBRARY_PATH="/usr/lib:/usr/lib64:${LIBRARY_PATH}"
+
+# Debug info
+echo "=== FFmpeg VA-API detection helper ===" >&2
+echo "PKG_CONFIG_PATH: $PKG_CONFIG_PATH" >&2
+if pkg-config --exists libva 2>/dev/null; then
+    echo "libva found via pkg-config:" >&2
+    echo "  Version: $(pkg-config --modversion libva)" >&2
+    echo "  Cflags: $(pkg-config --cflags libva)" >&2
+    echo "  Libs: $(pkg-config --libs libva)" >&2
+else
+    echo "WARNING: pkg-config cannot find libva!" >&2
+fi
+echo "====================================" >&2
+EOF
+    chmod +x /tmp/fix-ffmpeg-vaapi.sh
+
+    # Try creating symlinks if libraries are in /usr/lib but FFmpeg expects /usr/lib64
+    if [ -f "/usr/lib/libva.so" ] && [ ! -f "/usr/lib64/libva.so" ]; then
+        log_info "Creating VA-API symlinks in /usr/lib64..."
+        mkdir -p /usr/lib64
+        ln -sf /usr/lib/libva*.so* /usr/lib64/ 2>/dev/null || true
     fi
 
-    # Verify VA-API is functional
-    if command -v vainfo >/dev/null 2>&1; then
-        log_info "VA-API info:"
-        vainfo 2>&1 | head -5 || log_warning "vainfo failed - VA-API might not be fully functional"
-    fi
+    log_success "VA-API setup for FFmpeg completed"
 }
 
 testing(){
@@ -176,7 +186,8 @@ configure_build() {
     log_info "Configuring Kodi build for HDR support..."
     
     testing
-    verify_vaapi_installation
+    fix_vaapi_for_ffmpeg
+
     mkdir -p "$BUILD_DIR"
     cd "$BUILD_DIR"
 
@@ -191,11 +202,6 @@ configure_build() {
 
     # Use the HDR-specific CMake arguments (no modifications)
     local cmake_args=("${KODI_CMAKE_ARGS[@]}")
-
-    # Add PKG_CONFIG_PATH to CMake args if set
-    if [ -n "$PKG_CONFIG_PATH" ]; then
-        cmake_args+=("-DPKG_CONFIG_PATH=${PKG_CONFIG_PATH}")
-    fi
 
     # Log configuration for HDR
     log_info "Building with HDR-optimized configuration:"

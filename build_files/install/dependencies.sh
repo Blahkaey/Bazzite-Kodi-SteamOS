@@ -84,8 +84,6 @@ install_packages() {
 
 
 add_java11() {
-    log_info "Adding Fedora 41 repository..."
-
     # Create a temporary repo file for Fedora 41
     cat > /tmp/fedora-41.repo << 'EOF'
 [fedora-41]
@@ -107,7 +105,7 @@ EOF
     fi
 
     dnf5 config-manager setopt fedora-41.enabled=0
-    log_success "Java installed"
+    log_success "Successfully installed java-11-openjdk-headless"
     log_success "Fedora 41 repository disabled"
 }
 
