@@ -267,16 +267,16 @@ main() {
     log_info 'dnf list | grep ffmpeg'
     dnf5 list | grep ffmpeg
 
-    log_info 'dnf5 repolist'
-    dnf5 repolist
+    log_info 'dnf5 repolist--all'
+    dnf5 repolist --all
 
     log_info 'dnf5 config-manager setopt rpmfusion-free.enabled=1'
     dnf5 config-manager setopt rpmfusion-free.enabled=1
     log_info 'dnf5 config-manager setopt rpmfusion-nonfree.enabled=1'
     dnf5 config-manager setopt rpmfusion-nonfree.enabled=1
 
-    log_info 'dnf5 repolist'
-    dnf5 repolist
+    log_info 'dnf5 repolist--all'
+    dnf5 repolist--all
 
 
     log_info 'dnf5 install ffmpeg-devel libavcodec-devel libavformat-devel libavutil-devel libswscale-devel libswresample-devel libavfilter-devel libpostproc-devel'
