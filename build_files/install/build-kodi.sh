@@ -236,12 +236,12 @@ EOF
 configure_build() {
     log_info "Configuring Kodi build for HDR support..."
     
-
+    mkdir -p "$BUILD_DIR"
+    cd "$BUILD_DIR"
     verify_vaapi_installation
     testing
     patch_ffmpeg_cmake
-    mkdir -p "$BUILD_DIR"
-    cd "$BUILD_DIR"
+
 
     # Verify GBM support before proceeding
     if [[ "$SYSTEM_FEATURES" != *"gbm"* ]]; then
