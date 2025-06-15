@@ -113,8 +113,8 @@ configure_build() {
     fi
 
 
-        log_info 'echo $PKG_CONFIG_PATH'
-    echo $PKG_CONFIG_PATH
+    log_info 'echo "${PKG_CONFIG_PATH:-}"'
+    echo "${PKG_CONFIG_PATH:-}"
 
     # Fix VA-API detection for FFmpeg subprocess
     # Find where libva.pc is located
@@ -145,8 +145,8 @@ configure_build() {
 
 
 
-    log_info 'echo $PKG_CONFIG_PATH'
-    echo $PKG_CONFIG_PATH
+    log_info 'echo "${PKG_CONFIG_PATH:-}"'
+    echo "${PKG_CONFIG_PATH:-}"
 
 
 
