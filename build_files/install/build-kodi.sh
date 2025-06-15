@@ -26,11 +26,9 @@ clone_kodi_source() {
     log_success "Source code cloned successfully"
 }
 
-configure_build() {
-    log_info "Configuring Kodi build for HDR support..."
-    
 
-        # Debug: Check for pkg-config files
+debug_ffmpeg_installation() {
+       # Debug: Check for pkg-config files
     log_info "Checking for FFmpeg pkg-config files..."
     find /usr -name "libavcodec.pc" 2>/dev/null || log_warning "libavcodec.pc not found"
     find /usr -name "ffmpeg.pc" 2>/dev/null || log_warning "ffmpeg.pc not found"
@@ -58,9 +56,45 @@ configure_build() {
     log_info "Finding FFmpeg libraries..."
     ls -la /usr/lib64/libav* 2>/dev/null | head -10
 
-    log_info "Checking ffmpeg-devel contents for headers..."
-    rpm -ql ffmpeg-devel | grep -E "include.*\.h$" | head -10
 
+    log_info "=== FFmpeg Installation Debug ==="
+
+    # Check what ffmpeg packages are installed
+    log_info "Installed FFmpeg packages:"
+    rpm -qa | grep -i ffmpeg || true
+
+    # Find actual FFmpeg libraries (not avahi)
+    log_info "Finding libavcodec libraries:"
+    find /usr -name "libavcodec.so*" 2>/dev/null || log_warning "libavcodec.so not found"
+
+    # Check library locations from rpm
+    log_info "Libraries from ffmpeg package:"
+    rpm -ql ffmpeg | grep -E "\.so" || true
+
+    log_info "Libraries from ffmpeg-libs (if installed):"
+    rpm -ql ffmpeg-libs 2>/dev/null | grep -E "\.so" || log_info "ffmpeg-libs not installed"
+
+    # Check for headers in all possible locations
+    log_info "All files from ffmpeg-devel containing 'avcodec':"
+    rpm -ql ffmpeg-devel | grep avcodec || true
+
+    # Check if headers are in a subdirectory
+    log_info "Searching for FFmpeg headers in all of /usr:"
+    find /usr -name "avcodec.h" -type f 2>/dev/null || log_warning "avcodec.h not found anywhere"
+
+    # List all directories created by ffmpeg-devel
+    log_info "Directories created by ffmpeg-devel:"
+    rpm -ql ffmpeg-devel | grep -E "/$" | sort -u || true
+
+    log_info "=== End FFmpeg Debug ==="
+}
+
+
+configure_build() {
+    log_info "Configuring Kodi build for HDR support..."
+    
+    # Run debug first
+    debug_ffmpeg_installation
 
 
     log_info "Try using the uninstalled pc files from ffmpeg-devel..."
