@@ -272,6 +272,17 @@ main() {
     log_info 'dnf5 repolist --all'
     dnf5 repolist --all
 
+        # Enable RPMFusion repos (already in your script)
+    dnf5 config-manager setopt rpmfusion-free.enabled=1
+    dnf5 config-manager setopt rpmfusion-nonfree.enabled=1
+
+    # Install FFmpeg development packages
+    log_info "Installing FFmpeg development packages..."
+    dnf5 install -y ffmpeg-devel ffmpeg-libs-devel \
+        libavcodec-devel libavformat-devel libavutil-devel \
+        libswscale-devel libswresample-devel libavfilter-devel \
+        libpostproc-devel
+
 
 
     # Verify HDR requirements
