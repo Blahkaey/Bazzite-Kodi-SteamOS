@@ -222,8 +222,9 @@ testing(){
 configure_build() {
     log_info "Configuring Kodi build for HDR support..."
     
-    testing
+
     verify_vaapi_installation
+    testing
 
     mkdir -p "$BUILD_DIR"
     cd "$BUILD_DIR"
