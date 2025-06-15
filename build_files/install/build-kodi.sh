@@ -340,7 +340,7 @@ install_kodi() {
 
 install_kodi_standalone_service() {
     log_info "Installing kodi-standalone-service..."
-
+    mkdir /tmp/kodi-standalone-service
     local service_dir="/tmp/kodi-standalone-service"
     cleanup_dir "$service_dir"
 
