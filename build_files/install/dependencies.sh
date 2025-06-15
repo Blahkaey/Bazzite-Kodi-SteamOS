@@ -255,6 +255,8 @@ main() {
     install_packages "OPTIONAL" false  # Optional, don't fail
     install_packages "SERVICE" true || die "Failed to install service packages"
 
+
+    # FFmpeg debug testing
     log_info 'ffmpeg -version'
     ffmpeg -version
 
@@ -266,22 +268,6 @@ main() {
 
     log_info 'dnf list | grep ffmpeg'
     dnf5 list | grep ffmpeg
-
-    log_info 'dnf5 repolist--all'
-    dnf5 repolist --all
-
-    log_info 'dnf5 config-manager setopt rpmfusion-free.enabled=1'
-    dnf5 config-manager setopt rpmfusion-free.enabled=1
-    log_info 'dnf5 config-manager setopt rpmfusion-nonfree.enabled=1'
-    dnf5 config-manager setopt rpmfusion-nonfree.enabled=1
-
-    log_info 'dnf5 repolist--all'
-    dnf5 repolist --all
-
-
-    log_info 'dnf5 install ffmpeg-devel libavcodec-devel libavformat-devel libavutil-devel libswscale-devel libswresample-devel libavfilter-devel libpostproc-devel'
-    dnf5 install ffmpeg-devel libavcodec-devel libavformat-devel libavutil-devel libswscale-devel libswresample-devel libavfilter-devel libpostproc-devel
-
 
 
     # Verify HDR requirements
