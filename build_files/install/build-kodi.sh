@@ -308,10 +308,20 @@ build_kodi() {
     log_info "Building with $num_cores parallel jobs..."
 
     if ! cmake --build . --parallel "$num_cores"; then
-        if [ -f "/tmp/kodi-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src/ffmpeg/ffbuild/config.log" ]; then
+
+
+        if [ -f "/tmp/kodi-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src/ffmpeg-build/config.log" ]; then
             log_error "FFmpeg config.log contents:"
             tail -50 /tmp/kodi-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src/ffmpeg/ffbuild/config.log
         fi
+
+        log_info 'find /tmp/kodi-build -name "config.log" -path "*ffmpeg*" 2>/dev/null | xargs tail -100'
+        find /tmp/kodi-build -name "config.log" -path "*ffmpeg*" 2>/dev/null | xargs tail -100
+
+        log_info "cat /tmp/kodi-source/tools/depends/target/ffmpeg/CMakeLists.txt"
+        cat /tmp/kodi-source/tools/depends/target/ffmpeg/CMakeLists.txt
+
+
         ls -l /tmp
         ls -l /tmp/kodi-build
         ls -l /tmp/kodi-build/build
@@ -320,10 +330,12 @@ build_kodi() {
         ls -l /tmp/kodi-build/build/build-ffmpeg/src/build-ffmpeg-build
         ls -l /tmp/kodi-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix
         ls -l /tmp/kodi-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src
-        ls -l /tmp/kodi-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src/ffmpeg
-        ls -l /tmp/kodi-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src/ffmpeg/ffbuild/
+        ls -l /tmp/kodi-build/build/build-ffmpeg/src/build-ffmpeg-build/ffmpeg-prefix/src/ffmpeg-build
+
+
 
         die "Build failed - HDR build requirements not met"
+
     fi
 
     log_success "HDR build completed successfully"
