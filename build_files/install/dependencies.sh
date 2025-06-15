@@ -241,7 +241,7 @@ main() {
     fi
 
     dnf5 config-manager setopt "terra-mesa".enabled=1
-    dnf5 repolist
+    #dnf5 repolist
 
     # Install java 11 headless using fedora 41 repo
     add_java11
@@ -254,27 +254,6 @@ main() {
     install_packages "VAAPI" true || die "Failed to install VA-API packages"
     install_packages "OPTIONAL" false  # Optional, don't fail
     install_packages "SERVICE" true || die "Failed to install service packages"
-
-    log_info 'ls /usr/lib64/pkgconfig'
-    ls /usr/lib64/pkgconfig
-    log_info 'ls /usr/lib/pkgconfig'
-    ls /usr/lib/pkgconfig
-    log_info 'echo "${PKG_CONFIG_PATH:-}"'
-    echo "${PKG_CONFIG_PATH:-}"
-
-    # Fix VA-API detection for FFmpeg subprocess
-    # Find where libva.pc is located
-    local vaapi_pc_path=""
-    for dir in /usr/lib64/pkgconfig /usr/lib/pkgconfig /usr/share/pkgconfig /usr/local/lib/pkgconfig; do
-        if [ -f "$dir/libva.pc" ]; then
-            vaapi_pc_path="$dir"
-            break
-        fi
-    done
-
-    if [ -n "$vaapi_pc_path" ]; then
-        log_info "Found VA-API pkg-config in: $vaapi_pc_path"
-    fi
 
     # Verify HDR requirements
     verify_hdr_requirements || die "HDR requirement verification failed"

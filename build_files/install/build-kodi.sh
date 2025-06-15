@@ -94,12 +94,37 @@ debug_ffmpeg_installation() {
 }
 
 
+testing(){
+
+    log_info 'ls /usr/lib64/pkgconfig'
+    ls /usr/lib64/pkgconfig
+    log_info 'ls /usr/lib/pkgconfig'
+    ls /usr/lib/pkgconfig
+
+    local vaapi_pc_path=""
+    for dir in /usr/lib64/pkgconfig /usr/lib/pkgconfig /usr/share/pkgconfig /usr/local/lib/pkgconfig; do
+        if [ -f "$dir/libva.pc" ]; then
+            vaapi_pc_path="$dir"
+            break
+        fi
+    done
+
+    if [ -n "$vaapi_pc_path" ]; then
+        log_info "Found VA-API pkg-config in: $vaapi_pc_path"
+    fi
+
+
+
+
+
+
+}
+
 configure_build() {
     log_info "Configuring Kodi build for HDR support..."
-
-    # Use internal FFmpeg due to Bazzite's non-standard packaging
-    log_info "Using internal FFmpeg build (Bazzite compatibility)"
     
+    testing
+
     mkdir -p "$BUILD_DIR"
     cd "$BUILD_DIR"
 
@@ -111,46 +136,6 @@ configure_build() {
     if [[ "$SYSTEM_FEATURES" != *"gles"* ]]; then
         die "GLES support is required for HDR but was not detected"
     fi
-
-
-    log_info 'echo "${PKG_CONFIG_PATH:-}"'
-    echo "${PKG_CONFIG_PATH:-}"
-
-    # Fix VA-API detection for FFmpeg subprocess
-    # Find where libva.pc is located
-    local vaapi_pc_path=""
-    for dir in /usr/lib64/pkgconfig /usr/lib/pkgconfig /usr/share/pkgconfig /usr/local/lib/pkgconfig; do
-        if [ -f "$dir/libva.pc" ]; then
-            vaapi_pc_path="$dir"
-            break
-        fi
-    done
-
-    if [ -n "$vaapi_pc_path" ]; then
-        log_info "Found VA-API pkg-config in: $vaapi_pc_path"
-        # Export for FFmpeg's configure
-        export PKG_CONFIG_PATH="${PKG_CONFIG_PATH:+$PKG_CONFIG_PATH:}$vaapi_pc_path"
-        log_info "PKG_CONFIG_PATH set to: $PKG_CONFIG_PATH"
-    else
-        log_warning "Could not find libva.pc - FFmpeg VA-API support may fail"
-    fi
-
-    # Also ensure VA-API development headers are visible
-    if [ -d "/usr/include/va" ]; then
-        export C_INCLUDE_PATH="${C_INCLUDE_PATH:+$C_INCLUDE_PATH:}/usr/include"
-        export CPLUS_INCLUDE_PATH="${CPLUS_INCLUDE_PATH:+$CPLUS_INCLUDE_PATH:}/usr/include"
-    fi
-
-
-
-
-
-    log_info 'echo "${PKG_CONFIG_PATH:-}"'
-    echo "${PKG_CONFIG_PATH:-}"
-
-
-
-
 
     # Use the HDR-specific CMake arguments (no modifications)
     local cmake_args=("${KODI_CMAKE_ARGS[@]}")
