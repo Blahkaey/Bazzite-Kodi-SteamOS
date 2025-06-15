@@ -88,64 +88,123 @@ patch_ffmpeg_cmake() {
         local wrapper_dir="$BUILD_DIR/wrappers"
         mkdir -p "$wrapper_dir"
 
-        # Create pkg-config wrapper
+        # Create enhanced pkg-config wrapper that logs both calls AND output
         cat > "$wrapper_dir/pkg-config" << 'EOF'
 #!/bin/bash
-# Debug wrapper for pkg-config
-echo "[PKG-CONFIG-WRAPPER] Called with args: $@" >&2
-echo "[PKG-CONFIG-WRAPPER] PKG_CONFIG_PATH: ${PKG_CONFIG_PATH}" >&2
+# Enhanced debug wrapper for pkg-config
 
 # Set paths if not already set
 if [ -z "$PKG_CONFIG_PATH" ]; then
     export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib64/pkgconfig:/usr/share/pkgconfig"
-    echo "[PKG-CONFIG-WRAPPER] Set PKG_CONFIG_PATH to: $PKG_CONFIG_PATH" >&2
 fi
 
-# Run the real pkg-config
-exec /usr/bin/pkg-config "$@"
+# For debugging VA-API specifically
+if [[ "$*" == *"libva"* ]]; then
+    echo "[PKG-CONFIG-WRAPPER] VA-API query: $@" >&2
+    echo "[PKG-CONFIG-WRAPPER] PKG_CONFIG_PATH: ${PKG_CONFIG_PATH}" >&2
+
+    # Run the command and capture output
+    OUTPUT=$(/usr/bin/pkg-config "$@" 2>&1)
+    EXITCODE=$?
+
+    echo "[PKG-CONFIG-WRAPPER] Exit code: $EXITCODE" >&2
+    echo "[PKG-CONFIG-WRAPPER] Output: '$OUTPUT'" >&2
+
+    # Also test if libva exists
+    if /usr/bin/pkg-config --exists libva; then
+        echo "[PKG-CONFIG-WRAPPER] libva exists check: PASSED" >&2
+    else
+        echo "[PKG-CONFIG-WRAPPER] libva exists check: FAILED" >&2
+    fi
+
+    # Output the result
+    echo "$OUTPUT"
+    exit $EXITCODE
+else
+    # For non-VA-API queries, just pass through
+    exec /usr/bin/pkg-config "$@"
+fi
 EOF
         chmod +x "$wrapper_dir/pkg-config"
 
-        # Create configure wrapper to capture more debug info
+        # Create enhanced configure wrapper
         cat > "$wrapper_dir/configure-wrapper" << 'EOF'
 #!/bin/bash
 echo "=== FFMPEG CONFIGURE DEBUG ===" >&2
 echo "Current directory: $(pwd)" >&2
 echo "Configure args: $@" >&2
-echo "Environment PKG_CONFIG_PATH: ${PKG_CONFIG_PATH}" >&2
-echo "PATH: ${PATH}" >&2
 
 # Ensure pkg-config can find VA-API
 export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib64/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH}"
-echo "Set PKG_CONFIG_PATH to: ${PKG_CONFIG_PATH}" >&2
+echo "PKG_CONFIG_PATH: ${PKG_CONFIG_PATH}" >&2
 
-# Test VA-API before running configure
-echo "Pre-configure VA-API test:" >&2
-if pkg-config --exists libva; then
-    echo "  VA-API found! Version: $(pkg-config --modversion libva)" >&2
-    echo "  Cflags: $(pkg-config --cflags libva)" >&2
-    echo "  Libs: $(pkg-config --libs libva)" >&2
+# Test VA-API detection manually
+echo "=== Manual VA-API detection test ===" >&2
+echo "which pkg-config: $(which pkg-config)" >&2
+
+# Test with the actual pkg-config binary
+echo "Testing with /usr/bin/pkg-config directly:" >&2
+if /usr/bin/pkg-config --exists libva; then
+    echo "  libva exists: YES" >&2
+    echo "  version: $(/usr/bin/pkg-config --modversion libva)" >&2
+    echo "  cflags: $(/usr/bin/pkg-config --cflags libva)" >&2
+    echo "  libs: $(/usr/bin/pkg-config --libs libva)" >&2
 else
-    echo "  VA-API NOT FOUND by pkg-config!" >&2
+    echo "  libva exists: NO" >&2
 fi
 
-# Run configure and capture its output
-echo "=== Running FFmpeg configure ===" >&2
-"$1" "${@:2}" 2>&1 | tee /tmp/ffmpeg-configure.log
-
-# Save the exit code
-RESULT=$?
-
-# If configure failed, show the relevant part of config.log
-if [ $RESULT -ne 0 ]; then
-    echo "=== Configure failed, showing config.log ===" >&2
-    if [ -f "ffbuild/config.log" ]; then
-        echo "=== Last 200 lines of config.log ===" >&2
-        tail -200 ffbuild/config.log >&2
-
-        echo "=== VA-API specific checks from config.log ===" >&2
-        grep -A 10 -B 10 -i vaapi ffbuild/config.log >&2 || true
+# Test for specific VA-API components that FFmpeg might need
+for valib in libva libva-drm libva-x11; do
+    echo "Testing $valib:" >&2
+    if /usr/bin/pkg-config --exists $valib 2>/dev/null; then
+        echo "  $valib: FOUND (version: $(/usr/bin/pkg-config --modversion $valib 2>/dev/null))" >&2
+    else
+        echo "  $valib: NOT FOUND" >&2
     fi
+done
+
+# Check for VA-API headers directly
+echo "Checking VA-API headers:" >&2
+for header in /usr/include/va/va.h /usr/include/va/va_version.h; do
+    if [ -f "$header" ]; then
+        echo "  $header: EXISTS" >&2
+    else
+        echo "  $header: MISSING" >&2
+    fi
+done
+
+# Check for libva libraries
+echo "Checking libva libraries:" >&2
+for lib in /usr/lib64/libva.so /usr/lib/libva.so /usr/lib64/libva.so.2 /usr/lib/libva.so.2; do
+    if [ -e "$lib" ]; then
+        echo "  $lib: EXISTS" >&2
+    fi
+done
+
+echo "=== Running FFmpeg configure ===" >&2
+
+# Create a temporary script to intercept config.log
+ORIG_DIR=$(pwd)
+"$1" "${@:2}" 2>&1 | tee /tmp/ffmpeg-configure.log
+RESULT=${PIPESTATUS[0]}
+
+# If configure failed, show the VA-API specific parts of config.log
+if [ $RESULT -ne 0 ]; then
+    echo "=== Configure failed with exit code $RESULT ===" >&2
+
+    # Find and display config.log
+    for log in ffbuild/config.log config.log; do
+        if [ -f "$log" ]; then
+            echo "=== Showing VA-API checks from $log ===" >&2
+            # Look for VA-API related checks
+            grep -A 20 -B 5 "vaapi\|libva\|va\.h\|va_drm\|va_x11" "$log" 2>/dev/null | tail -500 >&2
+
+            # Also show the last 100 lines
+            echo "=== Last 100 lines of $log ===" >&2
+            tail -100 "$log" >&2
+            break
+        fi
+    done
 fi
 
 exit $RESULT
@@ -171,7 +230,18 @@ if(NOT CROSSCOMPILING)\\
 endif()\\
 " "$cmake_file"
 
-        log_success "FFmpeg CMakeLists.txt patched with debug wrappers"
+        # Additionally, let's try adding explicit paths for VA-API
+        sed -i "/list(APPEND ffmpeg_conf \${CONFIGARCH})/a\\
+\\
+# Add explicit paths for VA-API on Bazzite\\
+if(NOT CROSSCOMPILING AND ENABLE_VAAPI)\\
+  # Bazzite might have VA-API in /usr/lib instead of /usr/lib64\\
+  list(APPEND ffmpeg_conf --extra-cflags=-I/usr/include)\\
+  list(APPEND ffmpeg_conf --extra-ldflags=-L/usr/lib)\\
+endif()\\
+" "$cmake_file"
+
+        log_success "FFmpeg CMakeLists.txt patched with enhanced debug wrappers"
     else
         log_error "FFmpeg CMakeLists.txt not found at expected location"
     fi
