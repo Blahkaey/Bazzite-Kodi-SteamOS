@@ -255,6 +255,11 @@ main() {
     install_packages "OPTIONAL" false  # Optional, don't fail
     install_packages "SERVICE" true || die "Failed to install service packages"
 
+    log_info 'ls /usr/lib64/pkgconfig'
+    ls /usr/lib64/pkgconfig
+    log_info 'ls /usr/lib/pkgconfig'
+    ls /usr/lib/pkgconfig
+
     # Verify HDR requirements
     verify_hdr_requirements || die "HDR requirement verification failed"
 
