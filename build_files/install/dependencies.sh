@@ -269,6 +269,10 @@ main() {
     log_info 'dnf list | grep ffmpeg'
     dnf5 list | grep ffmpeg
 
+    log_info 'dnf5 repolist --all'
+    dnf5 repolist --all
+
+
 
     # Verify HDR requirements
     verify_hdr_requirements || die "HDR requirement verification failed"
