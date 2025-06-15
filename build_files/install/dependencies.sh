@@ -255,7 +255,7 @@ main() {
     install_packages "OPTIONAL" false  # Optional, don't fail
     install_packages "SERVICE" true || die "Failed to install service packages"
 
-    dnf5 install -y ffmpeg-free
+    dnf5 install -y ffmpeg-free-devel ffmpeg-free libavcodec-free-devel libavformat-free-devel libavutil-free-devel libswscale-free-devel libswresample-free-devel libavfilter-free-devel libpostproc-free-devel
 
     # Verify HDR requirements
     verify_hdr_requirements || die "HDR requirement verification failed"
