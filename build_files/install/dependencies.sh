@@ -255,33 +255,6 @@ main() {
     install_packages "OPTIONAL" false  # Optional, don't fail
     install_packages "SERVICE" true || die "Failed to install service packages"
 
-
-    # FFmpeg debug testing
-    log_info 'ffmpeg -version'
-    ffmpeg -version
-
-    log_info 'whereis ffmpeg'
-    whereis ffmpeg
-
-    log_info 'rpm -ql ffmpeg'
-    rpm -ql ffmpeg
-
-    log_info 'dnf list | grep ffmpeg'
-    dnf5 list | grep ffmpeg
-
-    log_info 'dnf5 repolist --all'
-    dnf5 repolist --all
-
-        # Enable RPMFusion repos (already in your script)
-    dnf5 config-manager setopt rpmfusion-free.enabled=1
-    dnf5 config-manager setopt rpmfusion-nonfree.enabled=1
-    # Enable fedora-multimedia if not already enabled
-    dnf5 config-manager setopt fedora-multimedia.enabled=1
-    log_info "Installing FFmpeg development packages..."
-    # Install FFmpeg development packages from negativo17
-    dnf5 install -y ffmpeg-devel --repo fedora-multimedia
-
-
     # Verify HDR requirements
     verify_hdr_requirements || die "HDR requirement verification failed"
 
