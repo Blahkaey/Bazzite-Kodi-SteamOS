@@ -93,6 +93,43 @@ debug_ffmpeg_installation() {
     log_info "=== End FFmpeg Debug ==="
 }
 
+install_ffmpeg_headers() {
+    log_info "Installing FFmpeg headers manually..."
+
+    local FFMPEG_VERSION="7.1.1"
+    local HEADER_DIR="/usr/include/ffmpeg"
+
+    # Create directory
+    mkdir -p "$HEADER_DIR"
+
+    # Download FFmpeg source to get headers
+    cd /tmp
+    if [ ! -f "ffmpeg-${FFMPEG_VERSION}.tar.xz" ]; then
+        log_info "Downloading FFmpeg source for headers..."
+        wget -q "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
+    fi
+
+    # Extract only the headers
+    tar -xf "ffmpeg-${FFMPEG_VERSION}.tar.xz" --strip-components=1 \
+        -C "$HEADER_DIR" \
+        "ffmpeg-${FFMPEG_VERSION}/libavcodec/*.h" \
+        "ffmpeg-${FFMPEG_VERSION}/libavformat/*.h" \
+        "ffmpeg-${FFMPEG_VERSION}/libavutil/*.h" \
+        "ffmpeg-${FFMPEG_VERSION}/libavfilter/*.h" \
+        "ffmpeg-${FFMPEG_VERSION}/libswscale/*.h" \
+        "ffmpeg-${FFMPEG_VERSION}/libswresample/*.h" \
+        "ffmpeg-${FFMPEG_VERSION}/libpostproc/*.h" \
+        "ffmpeg-${FFMPEG_VERSION}/libavdevice/*.h" \
+        2>/dev/null || true
+
+    # Fix the pkg-config files to point to our headers
+    local PC_DIR="/tmp/ffmpeg-pkgconfig"
+    for pc in "$PC_DIR"/*.pc; do
+        sed -i "s|includedir=.*|includedir=/usr/include/ffmpeg|" "$pc"
+    done
+
+    log_success "FFmpeg headers installed to $HEADER_DIR"
+}
 
 configure_build() {
     log_info "Configuring Kodi build for HDR support..."
@@ -102,20 +139,14 @@ configure_build() {
 
 
     log_info "Try using the uninstalled pc files from ffmpeg-devel..."
-        #
-    export PKG_CONFIG_PATH="/usr/share/doc/ffmpeg-devel/examples/pc-uninstalled:${PKG_CONFIG_PATH:-}"
-
-    # These uninstalled files might need adjustment, so let's copy and fix them
+    # Try using the uninstalled pc files from ffmpeg-devel
     local PC_DIR="/tmp/ffmpeg-pkgconfig"
     mkdir -p "$PC_DIR"
 
-    # Copy and adjust the uninstalled files
     for pc in /usr/share/doc/ffmpeg-devel/examples/pc-uninstalled/*.pc; do
         if [ -f "$pc" ]; then
             local basename=$(basename "$pc" -uninstalled.pc).pc
             cp "$pc" "$PC_DIR/$basename"
-
-            # Fix the paths in the copied files
             sed -i "s|^prefix=.*|prefix=/usr|" "$PC_DIR/$basename"
             sed -i "s|-uninstalled||g" "$PC_DIR/$basename"
             sed -i "s|/build/ffmpeg/src||g" "$PC_DIR/$basename"
@@ -124,10 +155,13 @@ configure_build() {
 
     export PKG_CONFIG_PATH="$PC_DIR:${PKG_CONFIG_PATH}"
 
-    log_info "Testing pkg-config with adjusted files..."
-    pkg-config --exists libavcodec && log_success "libavcodec found!" || log_warning "Still not found"
-    pkg-config --modversion libavcodec 2>/dev/null || true
+    # Install headers if not found
+    if [ ! -d "/usr/include/ffmpeg/libavcodec" ]; then
+        install_ffmpeg_headers
+    fi
 
+    # Help CMake find everything
+    export FFMPEG_ROOT="/usr"
 
 
     # Set up pkg-config path for FFmpeg to find VA-API

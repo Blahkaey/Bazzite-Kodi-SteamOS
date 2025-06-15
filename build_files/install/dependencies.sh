@@ -279,31 +279,7 @@ main() {
     dnf5 config-manager setopt fedora-multimedia.enabled=1
     log_info "Installing FFmpeg development packages..."
     # Install FFmpeg development packages from negativo17
-    log_info "Switching from negativo17 to RPMFusion FFmpeg..."
-
-    # First, list all installed negativo17 FFmpeg packages
-    log_info "Finding all negativo17 FFmpeg packages..."
-    local ffmpeg_packages=$(rpm -qa | grep -E "^(ffmpeg|libav|libsw|libpostproc)" | grep -v "libavahi" || true)
-
-    if [ -n "$ffmpeg_packages" ]; then
-        log_info "Removing negativo17 FFmpeg packages:"
-        echo "$ffmpeg_packages"
-
-        # Remove all FFmpeg-related packages
-        dnf5 remove -y $ffmpeg_packages || true
-    fi
-
-    # Disable negativo17 repo temporarily
-    dnf5 config-manager setopt fedora-multimedia.enabled=0
-
-    # Clean dnf cache to avoid conflicts
-    dnf5 clean all
-
-    # Install from RPMFusion
-    log_info "Installing RPMFusion FFmpeg..."
-    dnf5 install -y ffmpeg ffmpeg-devel --repo=rpmfusion-free --allowerasing
-
-    log_success "Switched to RPMFusion FFmpeg"
+    dnf5 install -y ffmpeg-devel --repo fedora-multimedia
 
 
     # Verify HDR requirements
