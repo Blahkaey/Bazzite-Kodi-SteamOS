@@ -130,7 +130,38 @@ install_ffmpeg_headers() {
 
     log_success "FFmpeg headers installed to $HEADER_DIR"
 }
+create_ffmpeg_dev_symlinks() {
+    log_info "Creating FFmpeg development symlinks..."
 
+    # List of FFmpeg libraries
+    local libs=(
+        "libavcodec"
+        "libavformat"
+        "libavutil"
+        "libswscale"
+        "libswresample"
+        "libavfilter"
+        "libpostproc"
+        "libavdevice"
+    )
+
+    for lib in "${libs[@]}"; do
+        # Find the actual library file
+        local libfile=$(ls /usr/lib64/${lib}.so.* 2>/dev/null | grep -E "\.so\.[0-9]+$" | head -1)
+
+        if [ -n "$libfile" ]; then
+            local target="/usr/lib64/${lib}.so"
+            if [ ! -e "$target" ]; then
+                log_info "Creating symlink: $target -> $libfile"
+                ln -s "$libfile" "$target"
+            fi
+        else
+            log_warning "Library $lib not found in /usr/lib64"
+        fi
+    done
+
+    log_success "Development symlinks created"
+}
 configure_build() {
     log_info "Configuring Kodi build for HDR support..."
     
@@ -150,6 +181,7 @@ configure_build() {
             sed -i "s|^prefix=.*|prefix=/usr|" "$PC_DIR/$basename"
             sed -i "s|-uninstalled||g" "$PC_DIR/$basename"
             sed -i "s|/build/ffmpeg/src||g" "$PC_DIR/$basename"
+            sed -i "s|includedir=.*|includedir=/usr/include/ffmpeg|" "$PC_DIR/$basename"
         fi
     done
 
@@ -160,8 +192,16 @@ configure_build() {
         install_ffmpeg_headers
     fi
 
+    # Create development symlinks
+    create_ffmpeg_dev_symlinks
+
     # Help CMake find everything
     export FFMPEG_ROOT="/usr"
+    export CMAKE_PREFIX_PATH="/usr:${CMAKE_PREFIX_PATH:-}"
+
+    # Verify symlinks exist
+    log_info "Verifying FFmpeg development files..."
+    ls -la /usr/lib64/libavcodec.so* | head -5
 
 
     # Set up pkg-config path for FFmpeg to find VA-API
