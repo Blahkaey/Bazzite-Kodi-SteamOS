@@ -52,6 +52,46 @@ configure_build() {
     log_info "Searching for libavcodec with pkg-config..."
     pkg-config --exists libavcodec && pkg-config --modversion libavcodec || log_warning "libavcodec not found by pkg-config"
 
+    log_info "Finding FFmpeg headers..."
+    find /usr/include -name "avcodec.h" 2>/dev/null || log_warning "avcodec.h not found in /usr/include"
+
+    log_info "Finding FFmpeg libraries..."
+    ls -la /usr/lib64/libav* 2>/dev/null | head -10
+
+    log_info "Checking ffmpeg-devel contents for headers..."
+    rpm -ql ffmpeg-devel | grep -E "include.*\.h$" | head -10
+
+
+
+    log_info "Try using the uninstalled pc files from ffmpeg-devel..."
+        #
+    export PKG_CONFIG_PATH="/usr/share/doc/ffmpeg-devel/examples/pc-uninstalled:${PKG_CONFIG_PATH:-}"
+
+    # These uninstalled files might need adjustment, so let's copy and fix them
+    local PC_DIR="/tmp/ffmpeg-pkgconfig"
+    mkdir -p "$PC_DIR"
+
+    # Copy and adjust the uninstalled files
+    for pc in /usr/share/doc/ffmpeg-devel/examples/pc-uninstalled/*.pc; do
+        if [ -f "$pc" ]; then
+            local basename=$(basename "$pc" -uninstalled.pc).pc
+            cp "$pc" "$PC_DIR/$basename"
+
+            # Fix the paths in the copied files
+            sed -i "s|^prefix=.*|prefix=/usr|" "$PC_DIR/$basename"
+            sed -i "s|-uninstalled||g" "$PC_DIR/$basename"
+            sed -i "s|/build/ffmpeg/src||g" "$PC_DIR/$basename"
+        fi
+    done
+
+    export PKG_CONFIG_PATH="$PC_DIR:${PKG_CONFIG_PATH}"
+
+    log_info "Testing pkg-config with adjusted files..."
+    pkg-config --exists libavcodec && log_success "libavcodec found!" || log_warning "Still not found"
+    pkg-config --modversion libavcodec 2>/dev/null || true
+
+
+
     # Set up pkg-config path for FFmpeg to find VA-API
     export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
     
