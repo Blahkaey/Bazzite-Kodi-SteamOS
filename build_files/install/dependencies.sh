@@ -279,6 +279,10 @@ main() {
     dnf5 config-manager setopt fedora-multimedia.enabled=1
     log_info "Installing FFmpeg development packages..."
     # Install FFmpeg development packages from negativo17
+    ls /etc/yum.repos.d/
+    cat /etc/yum.repos.d/fedora-multimedia.repo
+
+
     dnf5 install -y compat-ffmpeg7-devel
 
 
