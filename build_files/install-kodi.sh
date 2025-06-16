@@ -278,32 +278,7 @@ install_kodi() {
 }
 
 install_kodi_gbm_service() {
-    log_info "Installing kodi-standalone-service..."
-
-    local service_dir="/tmp/kodi-standalone-service"
-    mkdir "$service_dir"
-
-    if ! git clone --depth 1 https://github.com/Blahkaey/kodi-standalone-service.git "$service_dir"; then
-        die "Failed to clone kodi-standalone-service"
-    fi
-
-    cd "$service_dir"
-    if ! make install; then
-        die "Failed to install kodi-standalone-service"
-    fi
-
-    # Run systemd-sysusers to create the kodi user
-    systemd-sysusers || log_warning "systemd-sysusers reported warnings (this is normal in container builds)"
-    
-    # For containerized builds, only process the kodi-specific tmpfiles
-    # and ignore errors from system tmpfiles that don't apply to containers
-    if [ -f "/usr/lib/tmpfiles.d/kodi-standalone.conf" ]; then
-        log_info "Creating kodi tmpfiles..."
-        systemd-tmpfiles --create /usr/lib/tmpfiles.d/kodi-standalone.conf || log_warning "Some tmpfiles operations skipped (normal in containers)"
-    else
-        log_warning "kodi-standalone.conf not found, skipping tmpfiles creation"
-    fi
-    
+    log_info "Installing kodi_gbm_service..."
 
     # Make a config file for kodi gmb serivce env settings
     cat > "/etc/conf.d/kodi-env-config" << 'EOF'
