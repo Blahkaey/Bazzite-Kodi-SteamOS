@@ -223,8 +223,8 @@ main() {
     install_switching_scripts
     patch_kodi_standalone_for_gbm
     create_desktop_entry
-    setup_kodi_user_permissions
-    setup_selinux_contexts
+    #setup_kodi_user_permissions
+    #setup_selinux_contexts
 
     # IMPORTANT: Ensure we don't break Bazzite's default gaming mode boot
     log_info "Ensuring Bazzite gaming mode boot is preserved..."
