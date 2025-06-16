@@ -23,17 +23,11 @@ EOF
 #!/bin/bash
 # Switch from Gaming Mode to Kodi
 
-# Stop the current gaming session properly
-if systemctl --user is-active gamescope-session-plus@steam.service >/dev/null 2>&1; then
-    systemctl --user stop gamescope-session-plus@steam.service
-fi
+# Stop the current gaming session
+systemctl --user stop gamescope-session-plus@steam.service 2>/dev/null || true
 
-# Give it a moment to clean up
-sleep 2
-
-# Stop SDDM and start kodi-gbm service
-systemctl stop sddm.service
-systemctl start kodi-gbm.service
+# Use a single systemctl call to avoid multiple password prompts
+systemctl stop sddm.service --no-block && systemctl start kodi-gbm.service
 EOF
     chmod +x "/usr/bin/switch-to-kodi"
 
@@ -42,21 +36,8 @@ EOF
 #!/bin/bash
 # Switch from Kodi to Gaming Mode
 
-# Stop Kodi
-systemctl stop kodi-gbm.service
-
-# Give it a moment to clean up
-sleep 2
-
-# Ensure gaming mode autologin is configured
-AUTOLOGIN_CONF='/etc/sddm.conf.d/zz-steamos-autologin.conf'
-{
-    echo "[Autologin]"
-    echo "Session=gamescope-session.desktop"
-} > "$AUTOLOGIN_CONF"
-
-# Start SDDM (which will auto-login to gaming mode)
-systemctl start sddm.service
+# Stop Kodi and start SDDM
+systemctl stop kodi-gbm.service --no-block && systemctl start sddm.service
 EOF
     chmod +x "/usr/bin/switch-to-gamemode"
 
@@ -138,7 +119,7 @@ EOF
 }
 
 create_desktop_entry() {
-    log_info "Creating desktop entries..."
+    log_info "Creating desktop entry..."
 
     # Desktop entry to switch to Kodi (visible in Gaming Mode)
     cat > "/usr/share/applications/switch-to-kodi.desktop" << 'EOF'
@@ -151,27 +132,12 @@ Type=Application
 Categories=AudioVideo;Video;Player;TV;System;
 Terminal=false
 StartupNotify=false
-X-KDE-RunOnDiscreteGpu=false
 EOF
 
-    # Create a return to gaming mode desktop entry for Kodi
-    cat > "/usr/share/applications/return-to-gaming-mode-from-kodi.desktop" << 'EOF'
-[Desktop Entry]
-Name=Return to Gaming Mode
-Comment=Exit Kodi and return to Steam Gaming Mode
-Exec=/usr/bin/switch-to-gamemode
-Icon=steamdeck-gaming-return
-Type=Application
-Categories=System;
-Terminal=false
-StartupNotify=false
-EOF
-
-    # Make them executable for Steam
+    # Make it executable for Steam
     chmod 644 "/usr/share/applications/switch-to-kodi.desktop"
-    chmod 644 "/usr/share/applications/return-to-gaming-mode-from-kodi.desktop"
 
-    log_success "Desktop entries created"
+    log_success "Desktop entry created"
 }
 
 setup_kodi_user_permissions() {
@@ -223,22 +189,9 @@ main() {
     install_switching_scripts
     patch_kodi_standalone_for_gbm
     create_desktop_entry
-    #setup_kodi_user_permissions
-    #setup_selinux_contexts
+    setup_kodi_user_permissions
+    setup_selinux_contexts
 
-    # IMPORTANT: Ensure we don't break Bazzite's default gaming mode boot
-    log_info "Ensuring Bazzite gaming mode boot is preserved..."
-
-    # Don't enable kodi-gbm.service by default
-    systemctl disable kodi-gbm.service 2>/dev/null || true
-
-    # Ensure SDDM remains the display manager
-    if [ -L "/etc/systemd/system/display-manager.service" ]; then
-        rm -f /etc/systemd/system/display-manager.service
-    fi
-    systemctl enable sddm.service 2>/dev/null || true
-
-    log_success "Bazzite gaming mode boot preserved"
     log_success "All services configured for Kodi/Bazzite switching"
 }
 
