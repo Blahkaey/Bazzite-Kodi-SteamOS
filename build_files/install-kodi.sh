@@ -297,15 +297,17 @@ Conflicts=getty@tty1.service sddm.service gdm.service
 [Service]
 User=kodi
 Group=kodi
-EnvironmentFile=-/etc/conf.d/kodi-env-config
-SupplementaryGroups=input
+SupplementaryGroups=audio video render input optical
 PAMName=login
 TTYPath=/dev/tty1
+ExecStartPre=/usr/bin/chvt 1
 ExecStart=/usr/bin/kodi-standalone
 ExecStop=/usr/bin/killall --exact --wait kodi.bin
+EnvironmentFile=--/etc/conf.d/kodi-env-config
 Restart=on-abort
 StandardInput=tty
 StandardOutput=journal
+StandardError=journal
 
 [Install]
 Alias=display-manager.service
@@ -323,16 +325,31 @@ EOF
 d /var/lib/kodi 0750 kodi kodi - -
 Z /var/lib/kodi - kodi kodi - -
 EOF
+    # Create sysusers configuration
     cat > "/usr/lib/sysusers.d/kodi-standalone.conf" << 'EOF'
 g kodi - -
-u! kodi - "Kodi User" /var/lib/kodi
+u kodi - "Kodi User" /var/lib/kodi /usr/sbin/nologin
 m kodi audio
-m kodi optical
 m kodi video
+m kodi render
+m kodi input
+m kodi optical
 EOF
 
     # Run systemd-sysusers to create the kodi user
     systemd-sysusers || log_warning "systemd-sysusers reported warnings (this is normal in container builds)"
+
+
+    # Ensure kodi account never expires
+    if id kodi &>/dev/null; then
+        chage -E -1 kodi
+        chage -M -1 kodi
+        log_success "Removed expiration from kodi user"
+    else
+        log_error "Kodi user was not created!"
+        die "Failed to create kodi user"
+    fi
+
 
 
     # For containerized builds, only process the kodi-specific tmpfiles
