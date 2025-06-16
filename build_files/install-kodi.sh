@@ -324,24 +324,26 @@ EOF
     # Run systemd-sysusers to create the kodi user
     systemd-sysusers || log_warning "systemd-sysusers reported warnings (this is normal in container builds)"
 
-    # Fallback: ensure group memberships with usermod
-    # This is necessary because systemd-sysusers might not add to all groups in container builds
+    # Force group memberships with usermod - don't check if groups exist, just do it
     if id kodi &>/dev/null; then
-        for group in audio video render input optical; do
-            if getent group "$group" >/dev/null 2>&1; then
-                usermod -a -G "$group" kodi || log_warning "Failed to add kodi to $group"
-            else
-                log_warning "Group $group does not exist"
-            fi
-        done
+        log_info "Adding kodi to required groups..."
+
+        # Force add to all groups - these definitely exist based on the conflict messages
+        usermod -a -G audio,video,render,input,optical kodi || log_warning "Failed to add kodi to groups"
 
         # Remove account expiration
         chage -E -1 kodi
         chage -M -1 kodi
-        log_success "Configured kodi user"
 
         # Verify final groups
         log_info "Kodi user groups: $(groups kodi)"
+
+        # Check if critical groups are missing
+        if ! groups kodi | grep -q "video"; then
+            log_error "Failed to add kodi to video group - this will cause display issues!"
+        fi
+
+        log_success "Configured kodi user"
     else
         log_error "Kodi user was not created!"
         die "Failed to create kodi user"
