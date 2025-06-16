@@ -9,7 +9,7 @@ main() {
 
     # Execute build stages with bash explicitly
     run_stage "Installing dependencies" "/bin/bash /ctx/install-dependencies.sh"
-    run_stage "Building Kodi from source" "/bin/bash /ctx/install/install-kodi.sh"
+    run_stage "Building Kodi from source" "/bin/bash /ctx/install-kodi.sh"
     run_stage "Setting up services" "/bin/bash /ctx/install-services.sh"
 
 
