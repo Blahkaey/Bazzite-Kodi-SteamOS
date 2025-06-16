@@ -284,26 +284,36 @@ install_kodi() {
 install_kodi_gbm_service() {
     log_info "Installing kodi_gbm_service..."
 
-    # Make a config file for kodi gmb serivce env settings
-    cat > "/etc/conf.d/kodi-env-config" << 'EOF'
+    # Make a config file for kodi gmb service env settings
+    cat > "/etc/conf.d/kodi-standalone" << 'EOF'
 KODI_AE_SINK=ALSA
 EOF
 
-    #Ensures that /dev/dma_heap/linux* and /dev/dma_heap/system devices are made accessible, allowing Kodi to use DMA buffers without running as root.
+    # Ensures that /dev/dma_heap/linux* and /dev/dma_heap/system devices are made accessible
     cat > "/usr/lib/udev/rules.d/99-kodi.rules" << 'EOF'
 SUBSYSTEM=="dma_heap", KERNEL=="linux*", GROUP="video", MODE="0660"
 SUBSYSTEM=="dma_heap", KERNEL=="system", GROUP="video", MODE="0660"
 EOF
 
-
+    # Create tmpfiles configuration
     cat > "/usr/lib/tmpfiles.d/kodi-gbm.conf" << 'EOF'
 d /var/lib/kodi 0750 kodi kodi - -
 Z /var/lib/kodi - kodi kodi - -
 EOF
+
     # Create sysusers configuration
+    # First, ensure the groups exist
     cat > "/usr/lib/sysusers.d/kodi-gbm.conf" << 'EOF'
+# Create groups first
+g audio - -
+g video - -
+g render - -
+g input - -
+g optical - -
 g kodi - -
+# Create user
 u kodi - "Kodi User" /var/lib/kodi /usr/sbin/nologin
+# Add to groups
 m kodi audio
 m kodi video
 m kodi render
@@ -314,17 +324,28 @@ EOF
     # Run systemd-sysusers to create the kodi user
     systemd-sysusers || log_warning "systemd-sysusers reported warnings (this is normal in container builds)"
 
-
-    # Ensure kodi account never expires
+    # Fallback: ensure group memberships with usermod
+    # This is necessary because systemd-sysusers might not add to all groups in container builds
     if id kodi &>/dev/null; then
+        for group in audio video render input optical; do
+            if getent group "$group" >/dev/null 2>&1; then
+                usermod -a -G "$group" kodi || log_warning "Failed to add kodi to $group"
+            else
+                log_warning "Group $group does not exist"
+            fi
+        done
+
+        # Remove account expiration
         chage -E -1 kodi
         chage -M -1 kodi
-        log_success "Removed expiration from kodi user"
+        log_success "Configured kodi user"
+
+        # Verify final groups
+        log_info "Kodi user groups: $(groups kodi)"
     else
         log_error "Kodi user was not created!"
         die "Failed to create kodi user"
     fi
-
 
     # Make kodi-gbm.service
     cat > "/usr/lib/systemd/system/kodi-gbm.service" << 'EOF'
@@ -343,7 +364,7 @@ TTYPath=/dev/tty1
 ExecStartPre=/usr/bin/chvt 1
 ExecStart=/usr/bin/kodi-standalone
 ExecStop=/usr/bin/killall --exact --wait kodi.bin
-EnvironmentFile=--/etc/conf.d/kodi-env-config
+EnvironmentFile=-/etc/conf.d/kodi-standalone
 Restart=on-abort
 StandardInput=tty
 StandardOutput=journal
@@ -352,6 +373,7 @@ StandardError=journal
 [Install]
 Alias=display-manager.service
 EOF
+
     # Disable the service (manual start via switching scripts)
     systemctl disable kodi-gbm.service 2>/dev/null || true
 
