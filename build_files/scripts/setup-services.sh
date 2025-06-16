@@ -19,30 +19,14 @@ install_switching_scripts() {
 # Stop the current gaming session
 systemctl --user stop gamescope-session-plus@steam.service 2>/dev/null || true
 
-# Configure SDDM for Kodi session
+# Configure SDDM for direct kodi-gbm service (no desktop session)
 cat > /etc/sddm.conf.d/zz-steamos-autologin.conf << AUTOEOF
-[Autologin]
-Session=kodi-gbm
-User=kodi
+# Disabled for direct kodi-gbm service
 AUTOEOF
 
-# If in a graphical session, logout properly
-if [[ -n "${DISPLAY:-}" ]] || [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
-    # Try to use the desktop-specific logout command
-    if command -v qdbus >/dev/null 2>&1; then
-        # KDE/Plasma logout
-        sudo -u $(id -nu 1000) qdbus org.kde.Shutdown /Shutdown org.kde.Shutdown.logout
-    elif command -v gnome-session-quit >/dev/null 2>&1; then
-        # GNOME logout
-        sudo -u $(id -nu 1000) gnome-session-quit --logout --no-prompt
-    else
-        # Generic logout - restart display manager
-        systemctl restart sddm.service
-    fi
-else
-    # If not in graphical session, just restart the display manager
-    systemctl restart sddm.service
-fi
+# Stop SDDM and start kodi-gbm service directly
+systemctl stop sddm.service
+systemctl start kodi-gbm.service
 EOF
     chmod +x "/usr/bin/switch-to-kodi"
 
@@ -53,7 +37,6 @@ EOF
 
 # Get the primary user (UID 1000)
 PRIMARY_USER=$(id -nu 1000)
-HOME_DIR=$(getent passwd $PRIMARY_USER | cut -d: -f6)
 
 # Configure SDDM for gaming session
 cat > /etc/sddm.conf.d/zz-steamos-autologin.conf << AUTOEOF
@@ -62,12 +45,9 @@ Session=gamescope-session.desktop
 User=$PRIMARY_USER
 AUTOEOF
 
-# Stop Kodi if it's running
-systemctl stop kodi-gbm.service 2>/dev/null || true
-killall -TERM kodi.bin 2>/dev/null || true
-
-# Restart display manager to switch sessions
-systemctl restart sddm.service
+# Stop Kodi and start SDDM
+systemctl stop kodi-gbm.service
+systemctl start sddm.service
 EOF
     chmod +x "/usr/bin/switch-to-gamemode"
 
@@ -108,9 +88,24 @@ LimitNOFILE=524288
 Alias=display-manager.service
 EOF
 
-    # Create SDDM session file for Kodi
+    # Create SDDM session files for Kodi
     ensure_dir "/usr/share/xsessions"
+    ensure_dir "/usr/share/wayland-sessions"
+
+    # X11 session (fallback)
     cat > "/usr/share/xsessions/kodi-gbm.desktop" << 'EOF'
+[Desktop Entry]
+Name=Kodi (GBM/HDR)
+Comment=Kodi Media Center with HDR support
+Exec=/usr/bin/kodi-standalone
+TryExec=/usr/bin/kodi-standalone
+Type=Application
+DesktopNames=KODI
+Keywords=AudioVideo;Video;Player;TV;
+EOF
+
+    # Wayland session (primary for GBM)
+    cat > "/usr/share/wayland-sessions/kodi-gbm.desktop" << 'EOF'
 [Desktop Entry]
 Name=Kodi (GBM/HDR)
 Comment=Kodi Media Center with HDR support
@@ -155,6 +150,9 @@ Terminal=false
 StartupNotify=false
 EOF
 
+    # Make it executable for Steam
+    chmod 644 "/usr/share/applications/switch-to-kodi.desktop"
+
     # Desktop entry to return to gaming mode (visible in desktop mode if accessed)
     cat > "/usr/share/applications/return-to-gamemode.desktop" << 'EOF'
 [Desktop Entry]
@@ -167,6 +165,16 @@ Categories=System;
 Terminal=false
 StartupNotify=false
 EOF
+
+    # Also create a Steam-specific shortcut
+    local steam_user=$(id -nu 1000)
+    local steam_shortcuts_dir="/home/${steam_user}/.local/share/applications"
+
+    if [ -n "$steam_user" ]; then
+        mkdir -p "$steam_shortcuts_dir" || true
+        cp "/usr/share/applications/switch-to-kodi.desktop" "$steam_shortcuts_dir/" 2>/dev/null || true
+        chown -R "${steam_user}:${steam_user}" "$steam_shortcuts_dir" 2>/dev/null || true
+    fi
 
     log_success "Desktop entries created"
 }
@@ -289,4 +297,4 @@ main() {
     log_success "All services configured for Kodi/Bazzite switching"
 }
 
-# main "$@"
+main "$@"
