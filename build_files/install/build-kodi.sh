@@ -344,7 +344,7 @@ install_kodi_standalone_service() {
     local service_dir="/tmp/kodi-standalone-service"
     cleanup_dir "$service_dir"
 
-    if ! git clone --depth 1 https://github.com/graysky2/kodi-standalone-service.git "$service_dir"; then
+    if ! git clone --depth 1 https://github.com/Blahkaey/kodi-standalone-service.git "$service_dir"; then
         die "Failed to clone kodi-standalone-service"
     fi
 
