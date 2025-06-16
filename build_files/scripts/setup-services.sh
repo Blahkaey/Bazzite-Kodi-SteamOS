@@ -19,11 +19,6 @@ install_switching_scripts() {
 # Stop the current gaming session
 systemctl --user stop gamescope-session-plus@steam.service 2>/dev/null || true
 
-# Configure SDDM for direct kodi-gbm service (no desktop session)
-cat > /etc/sddm.conf.d/zz-steamos-autologin.conf << AUTOEOF
-# Disabled for direct kodi-gbm service
-AUTOEOF
-
 # Stop SDDM and start kodi-gbm service directly
 systemctl stop sddm.service
 systemctl start kodi-gbm.service
@@ -58,11 +53,8 @@ setup_systemd_services() {
     log_info "Configuring systemd services..."
 
     # Create service override for kodi-gbm
-    local override_dir="/etc/systemd/system/kodi-gbm.service.d"
-    ensure_dir "$override_dir"
-
     # Create comprehensive conflicts and session management
-    cat > "${override_dir}/bazzite-integration.conf" << 'EOF'
+    cat > "/etc/systemd/system/kodi-gbm.service.d/bazzite-integration.conf" << 'EOF'
 [Unit]
 # Conflict with Bazzite's gaming session components
 Conflicts=sddm.service gamescope-session.target
@@ -88,52 +80,14 @@ LimitNOFILE=524288
 Alias=display-manager.service
 EOF
 
-    # Create SDDM session files for Kodi
-    ensure_dir "/usr/share/xsessions"
-    ensure_dir "/usr/share/wayland-sessions"
-
-    # X11 session (fallback)
-    cat > "/usr/share/xsessions/kodi-gbm.desktop" << 'EOF'
-[Desktop Entry]
-Name=Kodi (GBM/HDR)
-Comment=Kodi Media Center with HDR support
-Exec=/usr/bin/kodi-standalone
-TryExec=/usr/bin/kodi-standalone
-Type=Application
-DesktopNames=KODI
-Keywords=AudioVideo;Video;Player;TV;
-EOF
-
-    # Wayland session (primary for GBM)
-    cat > "/usr/share/wayland-sessions/kodi-gbm.desktop" << 'EOF'
-[Desktop Entry]
-Name=Kodi (GBM/HDR)
-Comment=Kodi Media Center with HDR support
-Exec=/usr/bin/kodi-standalone
-TryExec=/usr/bin/kodi-standalone
-Type=Application
-DesktopNames=KODI
-Keywords=AudioVideo;Video;Player;TV;
-EOF
-
-    # Create return-to-gamemode service for Kodi
-    cat > "/etc/systemd/system/return-to-gamemode-from-kodi.service" << 'EOF'
-[Unit]
-Description=Return to Gaming Mode from Kodi
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/switch-to-gamemode
-EOF
-
     # Enable polkit for Kodi session management
     systemctl enable polkit.service
 
     log_success "Systemd services configured"
 }
 
-create_desktop_entries() {
-    log_info "Creating desktop entries..."
+create_desktop_entry() {
+    log_info "Creating desktop entry..."
 
     ensure_dir "/usr/share/applications"
 
@@ -153,30 +107,7 @@ EOF
     # Make it executable for Steam
     chmod 644 "/usr/share/applications/switch-to-kodi.desktop"
 
-    # Desktop entry to return to gaming mode (visible in desktop mode if accessed)
-    cat > "/usr/share/applications/return-to-gamemode.desktop" << 'EOF'
-[Desktop Entry]
-Name=Return to Gaming Mode
-Comment=Return to Steam Gaming Mode
-Exec=/usr/bin/switch-to-gamemode
-Icon=steamdeck-gaming-return
-Type=Application
-Categories=System;
-Terminal=false
-StartupNotify=false
-EOF
-
-    # Also create a Steam-specific shortcut
-    local steam_user=$(id -nu 1000)
-    local steam_shortcuts_dir="/home/${steam_user}/.local/share/applications"
-
-    if [ -n "$steam_user" ]; then
-        mkdir -p "$steam_shortcuts_dir" || true
-        cp "/usr/share/applications/switch-to-kodi.desktop" "$steam_shortcuts_dir/" 2>/dev/null || true
-        chown -R "${steam_user}:${steam_user}" "$steam_shortcuts_dir" 2>/dev/null || true
-    fi
-
-    log_success "Desktop entries created"
+    log_success "Desktop entry created"
 }
 
 configure_kodi_power_menu() {
@@ -290,7 +221,7 @@ main() {
 
     install_switching_scripts
     setup_systemd_services
-    create_desktop_entries
+    create_desktop_entry
     configure_kodi_power_menu
     create_first_boot_setup
 
