@@ -6,13 +6,27 @@ source "/ctx/utility.sh"
 install_switching_scripts() {
     log_info "Installing session switching scripts..."
 
+        # Create a polkit rule for password-less switching
+    cat > "/usr/share/polkit-1/rules.d/49-kodi-switching.rules" << 'EOF'
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.freedesktop.systemd1.manage-units") &&
+        (action.lookup("unit") == "kodi-gbm.service" ||
+         action.lookup("unit") == "sddm.service") &&
+        subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+});
+EOF
+
     # Install switch-to-kodi script
     cat > "/usr/bin/switch-to-kodi" << 'EOF'
 #!/bin/bash
 # Switch from Gaming Mode to Kodi
 
 # Stop the current gaming session
-systemctl --user stop gamescope-session-plus@steam.service 2>/dev/null || true
+if systemctl --user is-active gamescope-session-plus@steam.service >/dev/null 2>&1; then
+    systemctl --user stop gamescope-session-plus@steam.service 2>/dev/null || true
+fi
 
 # Stop SDDM and start kodi-gbm service directly
 systemctl stop sddm.service
@@ -25,9 +39,28 @@ EOF
 #!/bin/bash
 # Switch from Kodi to Gaming Mode
 
+USER=$(id -nu 1000)
+HOME=$(getent passwd $USER | cut -d: -f6)
+
+# SteamOS autologin SDDM config
+AUTOLOGIN_CONF='/etc/sddm.conf.d/zz-steamos-autologin.conf'
+
+# Configure autologin if Steam has been updated
+if [[ -f $HOME/.local/share/Steam/ubuntu12_32/steamui.so ]]; then
+  {
+    echo "[Autologin]"
+    echo "Session=gamescope-session.desktop"
+  } > "$AUTOLOGIN_CONF"
+fi
+
 # Stop Kodi and start SDDM
 systemctl stop kodi-gbm.service
 systemctl start sddm.service
+
+# This might be needed?
+#sudo -Eu $USER qdbus org.kde.Shutdown /Shutdown org.kde.Shutdown.logout
+
+
 EOF
     chmod +x "/usr/bin/switch-to-gamemode"
 
@@ -56,6 +89,63 @@ EOF
     log_success "Desktop entry created"
 }
 
+patch_kodi_standalone_for_gbm() {
+    log_info "Patching kodi-standalone for GBM support..."
+
+    # Only patch if the file exists
+    if [ -f "/usr/bin/kodi-standalone" ]; then
+        # Backup original
+        cp /usr/bin/kodi-standalone /usr/bin/kodi-standalone.orig
+        log_info "Backed up original kodi-standalone"
+    fi
+
+    # Create new version that supports GBM
+    cat > "/usr/bin/kodi-standalone" << 'EOF'
+#!/bin/sh
+prefix="/usr"
+exec_prefix="/usr"
+bindir="/usr/bin"
+libdir="/usr/lib64"
+
+APP="${libdir}/kodi/kodi-gbm $@"
+
+PULSE_START="$(command -v start-pulseaudio-x11)"
+if [ -n "$PULSE_START" ]; then
+  $PULSE_START
+fi
+
+
+LOOP=1
+CRASHCOUNT=0
+LASTSUCCESSFULSTART=$(date +%s)
+
+while [ $LOOP -eq 1 ]
+do
+  $APP
+  RET=$?
+  NOW=$(date +%s)
+  if [ $RET -ge 64 ] && [ $RET -le 66 ] || [ $RET -eq 0 ]; then # clean exit
+    LOOP=0
+  else # crash
+    DIFF=$((NOW-LASTSUCCESSFULSTART))
+    if [ $DIFF -gt 60 ]; then # Not on startup, ignore
+      LASTSUCESSFULSTART=$NOW
+      CRASHCOUNT=0
+    else # at startup, look sharp
+      CRASHCOUNT=$((CRASHCOUNT+1))
+      if [ $CRASHCOUNT -ge 3 ]; then # Too many, bail out
+        LOOP=0
+        echo "${APP} has exited in an unclean state 3 times in the last ${DIFF} seconds."
+        echo "Something is probably wrong"
+      fi
+    fi
+  fi
+done
+EOF
+    chmod +x /usr/bin/kodi-standalone
+    log_success "kodi-standalone patched for GBM support"
+}
+
 
 # Main execution
 main() {
@@ -63,6 +153,7 @@ main() {
 
     install_switching_scripts
     create_desktop_entry
+    patch_kodi_standalone_for_gbm
 
     log_success "All services configured for Kodi/Bazzite switching"
 }

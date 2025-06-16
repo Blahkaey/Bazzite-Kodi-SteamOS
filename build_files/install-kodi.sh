@@ -277,7 +277,7 @@ install_kodi() {
     log_success "Kodi installed"
 }
 
-install_kodi_standalone_service() {
+install_kodi_gbm_service() {
     log_info "Installing kodi-standalone-service..."
 
     local service_dir="/tmp/kodi-standalone-service"
@@ -304,15 +304,69 @@ install_kodi_standalone_service() {
         log_warning "kodi-standalone.conf not found, skipping tmpfiles creation"
     fi
     
-    # Ensure the kodi home directory exists with correct permissions
-    if ! [ -d "/var/lib/kodi" ]; then
-        mkdir -p /var/lib/kodi
-        chown kodi:kodi /var/lib/kodi
-        chmod 0750 /var/lib/kodi
-        log_success "Created /var/lib/kodi directory"
+
+    # Make a config file for kodi gmb serivce env settings
+    touch /etc/conf.d/kodi-env-config
+
+    # Make kodi-gbm.service
+    cat > "/usr/lib/systemd/system/kodi-gbm.service" << 'EOF'
+[Unit]
+Description=Kodi standalone (GBM)
+After=remote-fs.target systemd-user-sessions.service network-online.target nss-lookup.target sound.target bluetooth.target polkit.service upower.service mysqld.service lircd.service
+Wants=network-online.target polkit.service upower.service
+Conflicts=getty@tty1.service
+
+[Service]
+User=kodi
+Group=kodi
+EnvironmentFile=-/etc/conf.d/kodi-standalone
+SupplementaryGroups=input
+PAMName=login
+TTYPath=/dev/tty1
+ExecStart=/usr/bin/kodi-standalone
+ExecStop=/usr/bin/killall --exact --wait kodi.bin
+Restart=on-abort
+StandardInput=tty
+StandardOutput=journal
+
+[Install]
+Alias=display-manager.service
+EOF
+    systemctl disable kodi-gbm.service #2>/dev/null || true
+
+    #Ensures that /dev/dma_heap/linux* and /dev/dma_heap/system devices are made accessible, allowing Kodi to use DMA buffers without running as root.
+    cat > "/usr/lib/udev/rules.d/99-kodi.rules" << 'EOF'
+SUBSYSTEM=="dma_heap", KERNEL=="linux*", GROUP="video", MODE="0660"
+SUBSYSTEM=="dma_heap", KERNEL=="system", GROUP="video", MODE="0660"
+EOF
+
+    # Create kodi user
+    cat > "/usr/lib/tmpfiles.d/kodi-standalone.conf" << 'EOF'
+d /var/lib/kodi 0750 kodi kodi - -
+Z /var/lib/kodi - kodi kodi - -
+EOF
+    cat > "/usr/lib/sysusers.d/kodi-standalone.conf" << 'EOF'
+g kodi - -
+u! kodi - "Kodi User" /var/lib/kodi
+m kodi audio
+m kodi optical
+m kodi video
+EOF
+
+    # Run systemd-sysusers to create the kodi user
+    systemd-sysusers || log_warning "systemd-sysusers reported warnings (this is normal in container builds)"
+
+
+    # For containerized builds, only process the kodi-specific tmpfiles
+    # and ignore errors from system tmpfiles that don't apply to containers
+    if [ -f "/usr/lib/tmpfiles.d/kodi-standalone.conf" ]; then
+        log_info "Creating kodi tmpfiles..."
+        systemd-tmpfiles --create /usr/lib/tmpfiles.d/kodi-standalone.conf || log_warning "Some tmpfiles operations skipped (normal in containers)"
+    else
+        log_warning "kodi-standalone.conf not found, skipping tmpfiles creation"
     fi
 
-    log_success "kodi-standalone-service installed"
+    log_success "Kodi_gbm_service installed"
 }
 
 # Main execution
@@ -321,7 +375,7 @@ main() {
     configure_build
     build_kodi
     install_kodi
-    install_kodi_standalone_service
+    install_kodi_gbm_service
 
     log_success "Kodi build file complete"
 
