@@ -306,7 +306,10 @@ install_kodi_gbm_service() {
     
 
     # Make a config file for kodi gmb serivce env settings
-    touch /etc/conf.d/kodi-env-config
+    cat > "/etc/conf.d/kodi-env-config" << 'EOF'
+KODI_AE_SINK=ALSA
+KODI_RENDER_SYSTEM=gles
+EOF
 
     # Make kodi-gbm.service
     cat > "/usr/lib/systemd/system/kodi-gbm.service" << 'EOF'
@@ -314,12 +317,12 @@ install_kodi_gbm_service() {
 Description=Kodi standalone (GBM)
 After=remote-fs.target systemd-user-sessions.service network-online.target nss-lookup.target sound.target bluetooth.target polkit.service upower.service
 Wants=network-online.target polkit.service upower.service
-Conflicts=getty@tty1.service
+Conflicts=getty@tty1.service sddm.service gdm.service
 
 [Service]
 User=kodi
 Group=kodi
-EnvironmentFile=-/etc/conf.d/kodi-standalone
+EnvironmentFile=-/etc/conf.d/kodi-env-config
 SupplementaryGroups=input
 PAMName=login
 TTYPath=/dev/tty1
