@@ -295,13 +295,6 @@ install_kodi_standalone_service() {
     # Run systemd-sysusers to create the kodi user
     systemd-sysusers || log_warning "systemd-sysusers reported warnings (this is normal in container builds)"
     
-    # Fix for systemd < 257 compatibility
-    if [ -f "/usr/lib/sysusers.d/kodi-standalone.conf" ]; then
-        log_info "Fixing sysusers.conf for systemd compatibility..."
-        sed -i 's/^u! kodi/u kodi/' /usr/lib/sysusers.d/kodi-standalone.conf
-        log_success "sysusers.conf fixed"
-    fi
-
     # For containerized builds, only process the kodi-specific tmpfiles
     # and ignore errors from system tmpfiles that don't apply to containers
     if [ -f "/usr/lib/tmpfiles.d/kodi-standalone.conf" ]; then
