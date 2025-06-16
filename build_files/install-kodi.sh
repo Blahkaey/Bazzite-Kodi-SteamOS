@@ -312,7 +312,7 @@ install_kodi_gbm_service() {
     cat > "/usr/lib/systemd/system/kodi-gbm.service" << 'EOF'
 [Unit]
 Description=Kodi standalone (GBM)
-After=remote-fs.target systemd-user-sessions.service network-online.target nss-lookup.target sound.target bluetooth.target polkit.service upower.service mysqld.service lircd.service
+After=remote-fs.target systemd-user-sessions.service network-online.target nss-lookup.target sound.target bluetooth.target polkit.service upower.service
 Wants=network-online.target polkit.service upower.service
 Conflicts=getty@tty1.service
 

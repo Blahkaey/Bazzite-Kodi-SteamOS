@@ -30,6 +30,10 @@ fi
 
 # Stop SDDM and start kodi-gbm service directly
 systemctl stop sddm.service
+# Wait for SDDM to fully stop
+while systemctl is-active sddm.service >/dev/null 2>&1; do
+    sleep 0.5
+done
 systemctl start kodi-gbm.service
 EOF
     chmod +x "/usr/bin/switch-to-kodi"
