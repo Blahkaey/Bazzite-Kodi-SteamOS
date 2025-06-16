@@ -211,6 +211,7 @@ configure_build() {
     mkdir -p "$BUILD_DIR"
     cd "$BUILD_DIR"
 
+
     # Use the HDR-specific CMake arguments (no modifications)
     local cmake_args=("${KODI_CMAKE_ARGS[@]}")
 
@@ -270,6 +271,9 @@ install_kodi() {
 
     cd "$BUILD_DIR"
 
+    # Fixes missing dir error
+    mkdir -p /usr/lib64/kodi/addons
+
     if ! make install; then
         die "Installation failed"
     fi
@@ -283,8 +287,44 @@ install_kodi_gbm_service() {
     # Make a config file for kodi gmb serivce env settings
     cat > "/etc/conf.d/kodi-env-config" << 'EOF'
 KODI_AE_SINK=ALSA
-KODI_RENDER_SYSTEM=gles
 EOF
+
+    #Ensures that /dev/dma_heap/linux* and /dev/dma_heap/system devices are made accessible, allowing Kodi to use DMA buffers without running as root.
+    cat > "/usr/lib/udev/rules.d/99-kodi.rules" << 'EOF'
+SUBSYSTEM=="dma_heap", KERNEL=="linux*", GROUP="video", MODE="0660"
+SUBSYSTEM=="dma_heap", KERNEL=="system", GROUP="video", MODE="0660"
+EOF
+
+
+    cat > "/usr/lib/tmpfiles.d/kodi-gbm.conf" << 'EOF'
+d /var/lib/kodi 0750 kodi kodi - -
+Z /var/lib/kodi - kodi kodi - -
+EOF
+    # Create sysusers configuration
+    cat > "/usr/lib/sysusers.d/kodi-gbm.conf" << 'EOF'
+g kodi - -
+u kodi - "Kodi User" /var/lib/kodi /usr/sbin/nologin
+m kodi audio
+m kodi video
+m kodi render
+m kodi input
+m kodi optical
+EOF
+
+    # Run systemd-sysusers to create the kodi user
+    systemd-sysusers || log_warning "systemd-sysusers reported warnings (this is normal in container builds)"
+
+
+    # Ensure kodi account never expires
+    if id kodi &>/dev/null; then
+        chage -E -1 kodi
+        chage -M -1 kodi
+        log_success "Removed expiration from kodi user"
+    else
+        log_error "Kodi user was not created!"
+        die "Failed to create kodi user"
+    fi
+
 
     # Make kodi-gbm.service
     cat > "/usr/lib/systemd/system/kodi-gbm.service" << 'EOF'
@@ -312,54 +352,8 @@ StandardError=journal
 [Install]
 Alias=display-manager.service
 EOF
-    systemctl disable kodi-gbm.service #2>/dev/null || true
-
-    #Ensures that /dev/dma_heap/linux* and /dev/dma_heap/system devices are made accessible, allowing Kodi to use DMA buffers without running as root.
-    cat > "/usr/lib/udev/rules.d/99-kodi.rules" << 'EOF'
-SUBSYSTEM=="dma_heap", KERNEL=="linux*", GROUP="video", MODE="0660"
-SUBSYSTEM=="dma_heap", KERNEL=="system", GROUP="video", MODE="0660"
-EOF
-
-    # Create kodi user
-    cat > "/usr/lib/tmpfiles.d/kodi-standalone.conf" << 'EOF'
-d /var/lib/kodi 0750 kodi kodi - -
-Z /var/lib/kodi - kodi kodi - -
-EOF
-    # Create sysusers configuration
-    cat > "/usr/lib/sysusers.d/kodi-standalone.conf" << 'EOF'
-g kodi - -
-u kodi - "Kodi User" /var/lib/kodi /usr/sbin/nologin
-m kodi audio
-m kodi video
-m kodi render
-m kodi input
-m kodi optical
-EOF
-
-    # Run systemd-sysusers to create the kodi user
-    systemd-sysusers || log_warning "systemd-sysusers reported warnings (this is normal in container builds)"
-
-
-    # Ensure kodi account never expires
-    if id kodi &>/dev/null; then
-        chage -E -1 kodi
-        chage -M -1 kodi
-        log_success "Removed expiration from kodi user"
-    else
-        log_error "Kodi user was not created!"
-        die "Failed to create kodi user"
-    fi
-
-
-
-    # For containerized builds, only process the kodi-specific tmpfiles
-    # and ignore errors from system tmpfiles that don't apply to containers
-    if [ -f "/usr/lib/tmpfiles.d/kodi-standalone.conf" ]; then
-        log_info "Creating kodi tmpfiles..."
-        systemd-tmpfiles --create /usr/lib/tmpfiles.d/kodi-standalone.conf || log_warning "Some tmpfiles operations skipped (normal in containers)"
-    else
-        log_warning "kodi-standalone.conf not found, skipping tmpfiles creation"
-    fi
+    # Disable the service (manual start via switching scripts)
+    systemctl disable kodi-gbm.service 2>/dev/null || true
 
     log_success "Kodi_gbm_service installed"
 }
