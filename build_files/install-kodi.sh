@@ -7,9 +7,6 @@ export KODI_PREFIX="/usr"
 export BUILD_DIR="/tmp/kodi-build"
 export SOURCE_DIR="/tmp/kodi-source"
 
-export KODI_REPO="https://github.com/xbmc/xbmc"
-export KODI_BRANCH="-b Omega"
-
 export KODI_CMAKE_ARGS=(
     "-DCMAKE_INSTALL_PREFIX=${KODI_PREFIX}"
     "-DCMAKE_BUILD_TYPE=Release"
@@ -29,7 +26,7 @@ export KODI_CMAKE_ARGS=(
 
 clone_kodi_source() {
     log_info "Cloning Kodi source code..."
-    if ! git clone --depth 1 "$KODI_BRANCH" "$KODI_REPO" "$SOURCE_DIR"; then
+    if ! git clone --depth 1 -b "Omega" "https://github.com/xbmc/xbmc" "$SOURCE_DIR"; then
         die "Failed to clone Kodi repository"
     fi
 
