@@ -1,81 +1,39 @@
 #!/bin/bash
 set -euo pipefail
 
-SCRIPT_DIR="/ctx"
-source "${SCRIPT_DIR}/lib/common.sh"
-source "${SCRIPT_DIR}/lib/logging.sh"
+source "/ctx/utility.sh"
 
-# Load detected features
-[ -f /tmp/kodi-build-features.tmp ] && SYSTEM_FEATURES=$(cat /tmp/kodi-build-features.tmp)
+export KODI_PREFIX="/usr"
+export BUILD_DIR="/tmp/kodi-build"
+export SOURCE_DIR="/tmp/kodi-source"
 
-prepare_build_environment() {
-    log_info "Preparing build environment..."
+export KODI_REPO="https://github.com/xbmc/xbmc"
+export KODI_BRANCH="-b Omega"
 
-    cleanup_dir "$SOURCE_DIR"
-    cleanup_dir "$BUILD_DIR"
-    ensure_dir "$BUILD_DIR"
-}
+export KODI_CMAKE_ARGS=(
+    "-DCMAKE_INSTALL_PREFIX=${KODI_PREFIX}"
+    "-DCMAKE_BUILD_TYPE=Release"
+    "-DCORE_PLATFORM_NAME=gbm"
+    "-DAPP_RENDER_SYSTEM=gles"
+    "-DENABLE_VAAPI=ON"
+    "-DENABLE_VDPAU=OFF"
+    "-DENABLE_INTERNAL_FMT=ON"
+    "-DENABLE_INTERNAL_SPDLOG=ON"
+    "-DENABLE_INTERNAL_FLATBUFFERS=ON"
+    "-DENABLE_INTERNAL_CROSSGUID=ON"
+    "-DENABLE_INTERNAL_FSTRCMP=ON"
+    "-DENABLE_INTERNAL_FFMPEG=ON"
+    "-DENABLE_INTERNAL_DAV1D=ON"
+    "-DENABLE_UDEV=ON"
+)
 
 clone_kodi_source() {
     log_info "Cloning Kodi source code..."
-    if ! git clone --depth 1 -b "Omega" "$KODI_REPO" "$SOURCE_DIR"; then
+    if ! git clone --depth 1 "$KODI_BRANCH" "$KODI_REPO" "$SOURCE_DIR"; then
         die "Failed to clone Kodi repository"
     fi
 
     log_success "Source code cloned successfully"
-}
-
-debug_vaapi_setup() {
-    log_info "=== VA-API Debug Information ==="
-
-    # Test pkg-config with various paths
-    log_info "Testing pkg-config paths..."
-
-    # Test default pkg-config
-    log_info "Default pkg-config test:"
-    pkg-config --version || log_error "pkg-config not found!"
-    pkg-config --variable pc_path pkg-config || log_error "Cannot get pkg-config paths"
-
-    # Test with our paths
-    export PKG_CONFIG_PATH="/usr/lib64/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
-    log_info "With PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
-
-    if pkg-config --exists libva; then
-        log_success "libva found by pkg-config!"
-        log_info "libva version: $(pkg-config --modversion libva)"
-        log_info "libva cflags: $(pkg-config --cflags libva)"
-        log_info "libva libs: $(pkg-config --libs libva)"
-    else
-        log_error "libva NOT found by pkg-config"
-
-        # Try to find libva.pc manually
-        log_info "Searching for libva.pc files:"
-        find /usr -name "libva.pc" -type f 2>/dev/null | while read pc; do
-            log_info "  Found: $pc"
-            log_info "  Contents:"
-            cat "$pc" | head -10
-        done
-    fi
-
-    # Check for VA-API headers
-    log_info "Checking for VA-API headers:"
-    if [ -f "/usr/include/va/va.h" ]; then
-        log_success "Found /usr/include/va/va.h"
-    else
-        log_error "Missing /usr/include/va/va.h"
-        find /usr -name "va.h" -path "*/va/*" 2>/dev/null | head -5
-    fi
-
-    # Check for VA-API libraries
-    log_info "Checking for VA-API libraries:"
-    for lib in /usr/lib64/libva.so /usr/lib/libva.so; do
-        if [ -e "$lib" ]; then
-            log_success "Found $lib"
-            log_info "  Links to: $(readlink -f "$lib")"
-        fi
-    done
-
-    log_info "=== End VA-API Debug ==="
 }
 
 patch_ffmpeg_cmake() {
@@ -250,24 +208,11 @@ endif()\\
 configure_build() {
     log_info "Configuring Kodi build..."
 
-    # Debug VA-API setup before starting
-    debug_vaapi_setup
-
     # Apply the patch
     patch_ffmpeg_cmake
 
     mkdir -p "$BUILD_DIR"
-
     cd "$BUILD_DIR"
-
-    # Verify GBM support before proceeding
-    if [[ "$SYSTEM_FEATURES" != *"gbm"* ]]; then
-        die "GBM support is required for HDR but was not detected"
-    fi
-
-    if [[ "$SYSTEM_FEATURES" != *"gles"* ]]; then
-        die "GLES support is required for HDR but was not detected"
-    fi
 
     # Use the HDR-specific CMake arguments (no modifications)
     local cmake_args=("${KODI_CMAKE_ARGS[@]}")
@@ -304,13 +249,10 @@ configure_build() {
         log_success "GLES render system verified"
     fi
 
-    BUILD_FEATURES="gbm gles vaapi hdr"
-    echo "$BUILD_FEATURES" > /tmp/kodi-build-features-final.tmp
-
     log_success "Kodi build configured successfully"
 }
 
-# Rest of the functions remain the same...
+
 build_kodi() {
     log_info "Building Kodi..."
 
@@ -340,9 +282,9 @@ install_kodi() {
 
 install_kodi_standalone_service() {
     log_info "Installing kodi-standalone-service..."
-    mkdir /tmp/kodi-standalone-service
+
     local service_dir="/tmp/kodi-standalone-service"
-    cleanup_dir "$service_dir"
+    mkdir "$service_dir"
 
     if ! git clone --depth 1 https://github.com/Blahkaey/kodi-standalone-service.git "$service_dir"; then
         die "Failed to clone kodi-standalone-service"
@@ -373,7 +315,6 @@ install_kodi_standalone_service() {
         log_success "Created /var/lib/kodi directory"
     fi
 
-    cleanup_dir "$service_dir"
     log_success "kodi-standalone-service installed"
 }
 
@@ -384,12 +325,6 @@ main() {
     build_kodi
     install_kodi
     install_kodi_standalone_service
-
-    # Cleanup
-    log_info "Cleaning up build artifacts..."
-    cleanup_dir "$SOURCE_DIR"
-    cleanup_dir "$BUILD_DIR"
-    rm -f /tmp/kodi-build-*.tmp
 
     log_success "Kodi build file complete"
 

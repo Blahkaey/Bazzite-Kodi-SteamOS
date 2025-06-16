@@ -1,13 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-# Use absolute paths for containerized environment
-SCRIPT_DIR="/ctx"
-source "${SCRIPT_DIR}/lib/common.sh"
-source "${SCRIPT_DIR}/lib/logging.sh"
-
-# Load package lists from container mount
-PACKAGE_CONFIG="${SCRIPT_DIR}/assets/package-lists.conf"
+source "/ctx/utility.sh"
+PACKAGE_CONFIG="/ctx/package-lists.conf"
 
 install_packages() {
     local category="$1"
@@ -82,7 +77,6 @@ install_packages() {
     return 0
 }
 
-
 add_java11() {
     # Create a temporary repo file for Fedora 41
     cat > /tmp/fedora-41.repo << 'EOF'
@@ -109,132 +103,11 @@ EOF
     log_success "Fedora 41 repository disabled"
 }
 
-verify_hdr_requirements() {
-    log_info "Verifying HDR build requirements..."
-
-    local missing_requirements=()
-
-    # Check for GBM - Bazzite might not have the header in standard location
-    if ! pkg-config --exists gbm 2>/dev/null; then
-        # Check if mesa-libgbm is installed (runtime is sufficient for Bazzite)
-        if ! rpm -q mesa-libgbm >/dev/null 2>&1; then
-            missing_requirements+=("GBM library (mesa-libgbm)")
-        else
-            log_info "GBM runtime library found - headers may be bundled differently in Bazzite"
-        fi
-    fi
-
-    # Check for GLES
-    if [ ! -f "/usr/lib64/libGLESv2.so" ] && [ ! -f "/usr/lib/libGLESv2.so" ]; then
-        # Check if it's in the mesa package
-        if ! rpm -ql mesa-libGL | grep -q libGLES >/dev/null 2>&1; then
-            missing_requirements+=("GLES libraries")
-        fi
-    fi
-
-    # Check for libinput (required for GBM)
-    if ! pkg-config --exists libinput 2>/dev/null; then
-        missing_requirements+=("libinput development files")
-    fi
-
-    # Check for DRM - libdrm-devel should install normally
-    if ! pkg-config --exists libdrm 2>/dev/null; then
-        if [ ! -f "/usr/include/xf86drm.h" ] && [ ! -f "/usr/include/libdrm/drm.h" ]; then
-            missing_requirements+=("DRM development files (libdrm-devel)")
-        fi
-    fi
-
-    # Check for VA-API
-    if ! pkg-config --exists libva 2>/dev/null && [ ! -f "/usr/include/va/va.h" ]; then
-        log_warning "VA-API not found - HDR will work but without hardware acceleration"
-    fi
-
-    # Check for EGL (often bundled with mesa)
-    if [ ! -f "/usr/include/EGL/egl.h" ]; then
-        missing_requirements+=("EGL headers")
-    fi
-
-    if [ ${#missing_requirements[@]} -gt 0 ]; then
-        log_error "Missing HDR requirements:"
-        printf '%s\n' "${missing_requirements[@]}" | sed 's/^/  - /'
-        log_info "Note: Bazzite uses custom mesa packages. Some headers may be bundled differently."
-        log_info "Attempting to proceed with available libraries..."
-
-        # Only fail if critical runtime libraries are missing
-        if rpm -q mesa-libgbm mesa-libEGL >/dev/null 2>&1; then
-            log_warning "Runtime libraries present - proceeding with build"
-            return 0
-        else
-            return 1
-        fi
-    fi
-
-    log_success "All HDR requirements verified"
-    return 0
-}
-
-# System detection and capability checking
-detect_system_capabilities() {
-    local capabilities=""
-
-    # Check for VA-API
-    if pkg-config --exists libva 2>/dev/null || [ -f "/usr/include/va/va.h" ]; then
-        capabilities="${capabilities} vaapi"
-    elif rpm -q mesa-va-drivers >/dev/null 2>&1; then
-        # Bazzite might have VA-API support without headers
-        capabilities="${capabilities} vaapi"
-    fi
-
-    # Check for OpenGL/EGL
-    if [ -d "/usr/include/EGL" ] || [ -f "/usr/lib64/libEGL.so" ]; then
-        capabilities="${capabilities} egl"
-    elif rpm -q mesa-libEGL >/dev/null 2>&1; then
-        # Bazzite has EGL runtime without headers
-        capabilities="${capabilities} egl"
-    fi
-
-    # Check for GLES
-    if [ -d "/usr/include/GLES2" ] || [ -f "/usr/lib64/libGLESv2.so" ]; then
-        capabilities="${capabilities} gles"
-    elif rpm -q mesa-libGL >/dev/null 2>&1; then
-        # Bazzite bundles GLES with GL
-        capabilities="${capabilities} gles"
-    fi
-
-    # Check for GBM
-    if pkg-config --exists gbm 2>/dev/null || [ -f "/usr/include/gbm.h" ]; then
-        capabilities="${capabilities} gbm"
-    elif rpm -q mesa-libgbm >/dev/null 2>&1; then
-        # Bazzite has GBM runtime without headers
-        capabilities="${capabilities} gbm"
-    fi
-
-    # Check for systemd
-    if command -v systemctl >/dev/null 2>&1; then
-        capabilities="${capabilities} systemd"
-    fi
-
-    # Check for Wayland
-    if pkg-config --exists wayland-client 2>/dev/null; then
-        capabilities="${capabilities} wayland"
-    fi
-
-    # Check for libdrm
-    if pkg-config --exists libdrm 2>/dev/null || rpm -q libdrm >/dev/null 2>&1; then
-        capabilities="${capabilities} drm"
-    fi
-
-    echo "$capabilities"
-}
-
 build_libva() {
     log_info "Building libva (Video Acceleration API library)..."
 
-    mkdir -p "/tmp/libva-build"
-
     local build_dir="/tmp/libva-build"
-    cleanup_dir "$build_dir"
-
+    mkdir "$build_dir"
 
     # Clone the repo
     if ! git clone --depth 1 https://github.com/intel/libva.git "$build_dir"; then
@@ -293,17 +166,6 @@ main() {
     build_libva
     install_packages "OPTIONAL" false  # Optional, don't fail
     install_packages "SERVICE" true || die "Failed to install service packages"
-
-
-    # Verify HDR requirements
-    verify_hdr_requirements || die "HDR requirement verification failed"
-
-    # Detect system capabilities
-    SYSTEM_FEATURES=$(detect_system_capabilities)
-    log_info "Detected system features: $SYSTEM_FEATURES"
-
-    # Export for use by build script
-    echo "$SYSTEM_FEATURES" > /tmp/kodi-build-features.tmp
 }
 
 # Call main with all arguments

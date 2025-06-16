@@ -1,22 +1,20 @@
 #!/bin/bash
 set -euo pipefail
 
-SCRIPT_DIR="/ctx"
-source "${SCRIPT_DIR}/lib/common.sh"
-source "${SCRIPT_DIR}/lib/logging.sh"
+source "/ctx/utility.sh"
 
 # Main build process
 main() {
     log_section "Kodi HDR Build Process"
 
     # Execute build stages with bash explicitly
-    run_stage "Installing dependencies" "/bin/bash ${SCRIPT_DIR}/install/dependencies.sh"
-    run_stage "Building Kodi from source" "/bin/bash ${SCRIPT_DIR}/install/build-kodi.sh"
-    run_stage "Setting up services" "/bin/bash ${SCRIPT_DIR}/scripts/setup-services.sh"
+    run_stage "Installing dependencies" "/bin/bash /ctx/install-dependencies.sh"
+    run_stage "Building Kodi from source" "/bin/bash /ctx/install/install-kodi.sh"
+    run_stage "Setting up services" "/bin/bash /ctx/install-services.sh"
 
 
-    log_section "Build Complete"
     log_success "Bazzite-Kodi-SteamOS build completed successfully!"
+    log_section "Build Complete"
 }
 
 run_stage() {

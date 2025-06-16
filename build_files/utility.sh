@@ -51,3 +51,13 @@ log_subsection() {
 log_debug() {
     [ "${DEBUG:-0}" = "1" ] && echo -e "${YELLOW}[DEBUG]${NC} $*"
 }
+
+die() {
+    echo "[ERROR] $@" >&2
+    exit 1
+}
+
+cleanup_dir() {
+    local dir="$1"
+    [ -d "$dir" ] && rm -rf "$dir"
+}
