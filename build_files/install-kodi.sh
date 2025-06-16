@@ -294,6 +294,11 @@ install_kodi_standalone_service() {
 
     # Run systemd-sysusers to create the kodi user
     systemd-sysusers || log_warning "systemd-sysusers reported warnings (this is normal in container builds)"
+
+    # IMPORTANT: Do NOT enable kodi-gbm.service by default
+    # It will be started on-demand by the switch scripts
+    systemctl disable kodi-gbm.service 2>/dev/null || true
+    log_info "kodi-gbm.service installed but not enabled (prevents boot conflicts)"
     
     # Fix for systemd < 257 compatibility
     if [ -f "/usr/lib/sysusers.d/kodi-standalone.conf" ]; then
