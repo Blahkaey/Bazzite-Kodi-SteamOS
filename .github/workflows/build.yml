@@ -97,8 +97,11 @@ jobs:
             type=raw,value=stable,enable=${{ github.event_name == 'schedule' }}
             type=raw,value=stable.{{date 'YYYYMMDD'}},enable=${{ github.event_name == 'schedule' }}
 
-            # Keep last 5 daily builds with weekday tags
-            type=raw,value={{date 'dddd' | lower}}-{{date 'YYYYMMDD'}}
+            # Build number tag
+            type=raw,value=build-${{ github.run_number }}
+
+            # Week-based tag (useful for weekly rollups)
+            type=raw,value=week-{{date 'YYYY'}}-W{{date 'ww'}}
 
           labels: |
             io.artifacthub.package.readme-url=https://raw.githubusercontent.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/refs/heads/main/README.md
