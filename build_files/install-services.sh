@@ -149,6 +149,69 @@ fi
 EOF
 chmod +x "/usr/bin/switch-to-gamemode"
 
+cat > "/usr/bin/switch-to-gamemode-delayed" << 'EOF'
+#!/bin/bash
+# Delayed switch specifically for use within Kodi plugins
+(
+    # Fork to background immediately
+    sleep 2
+    systemctl stop kodi-gbm.service
+    systemctl start sddm.service
+) </dev/null >/dev/null 2>&1 &
+
+# Exit immediately so Kodi doesn't hang
+exit 0
+EOF
+
+cat > "/usr/bin/switch-to-gamemode-delayed-test" << 'EOF'
+#!/bin/bash
+# Delayed switch specifically for use within Kodi plugins
+(
+    # Fork to background immediately
+    sleep 2
+    systemctl start --no-block kodi-switch-handler.service
+) </dev/null >/dev/null 2>&1 &
+
+# Exit immediately so Kodi doesn't hang
+exit 0
+EOF
+chmod +x "/usr/bin/switch-to-gamemode-delayed"
+
+# 6. Create a Python wrapper that Kodi plugins can use more safely:
+cat > "/usr/bin/kodi-switch-to-gamemode.py" << 'EOF'
+#!/usr/bin/env python3
+import subprocess
+import os
+import sys
+import time
+
+# Detach from parent process completely
+if os.fork() > 0:
+    sys.exit(0)
+
+# Create new session
+os.setsid()
+
+# Fork again
+if os.fork() > 0:
+    sys.exit(0)
+
+# Close file descriptors
+for fd in range(0, 3):
+    try:
+        os.close(fd)
+    except:
+        pass
+
+# Wait a bit for Kodi to process
+time.sleep(2)
+
+# Perform the switch
+subprocess.run(['systemctl', 'stop', 'kodi-gbm.service'])
+subprocess.run(['systemctl', 'start', 'sddm.service'])
+EOF
+chmod +x "/usr/bin/kodi-switch-to-gamemode.py"
+
 log_success "Installed switch to gamemode scripts..."
 }
 
