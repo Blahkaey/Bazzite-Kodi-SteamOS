@@ -324,12 +324,36 @@ EOF
     # Run systemd-sysusers to create the kodi user
     systemd-sysusers || log_warning "systemd-sysusers reported warnings (this is normal in container builds)"
 
-    # Force group memberships with usermod - don't check if groups exist, just do it
+    # Ensure system groups are created first
+    # Process the system groups configuration to ensure groups exist
+    systemd-sysusers /usr/lib/sysusers.d/20-setup-groups.conf || true
+
+    # Force group memberships with usermod
     if id kodi &>/dev/null; then
         log_info "Adding kodi to required groups..."
 
-        # Force add to all groups - these definitely exist based on the conflict messages
-        usermod -a -G audio,video,render,input,optical kodi || log_warning "Failed to add kodi to groups"
+        # Verify groups exist in /etc/group before adding
+        for group in audio video render input optical; do
+            if ! getent group "$group" >/dev/null 2>&1; then
+                log_warning "Group $group not found in /etc/group, creating it..."
+                # Create the group with the GID from the sysusers.d file
+                case "$group" in
+                    audio) groupadd -g 63 audio || true ;;
+                    video) groupadd -g 39 video || true ;;
+                    render) groupadd -g 105 render || true ;;
+                    input) groupadd -g 104 input || true ;;
+                    optical) groupadd optical || true ;;
+                esac
+            fi
+        done
+
+        # Now add kodi to the groups
+        usermod -a -G audio,video,render,input,optical kodi || log_warning "usermod failed"
+
+        # Alternative method if usermod fails
+        for group in audio video render input optical; do
+            gpasswd -a kodi "$group" 2>/dev/null || log_warning "Failed to add kodi to $group with gpasswd"
+        done
 
         # Remove account expiration
         chage -E -1 kodi
@@ -363,7 +387,6 @@ Group=kodi
 SupplementaryGroups=audio video render input optical
 PAMName=login
 TTYPath=/dev/tty1
-ExecStartPre=/usr/bin/chvt 1
 ExecStart=/usr/bin/kodi-standalone
 ExecStop=/usr/bin/killall --exact --wait kodi.bin
 EnvironmentFile=-/etc/conf.d/kodi-standalone
