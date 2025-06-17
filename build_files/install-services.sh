@@ -52,7 +52,7 @@ fi
 # Kill any remaining Steam/Gamescope processes
 pkill -f gamescope || true
 pkill -f steam || true
-sleep 1
+sleep 0.5
 
 # Stop SDDM and start kodi-gbm service
 systemctl stop sddm.service
@@ -100,17 +100,17 @@ set -euo pipefail
 echo "Switching to Gaming Mode..."
 
 # Get desktop user info
-DESKTOP_USER=$(id -nu 1000)
-DESKTOP_HOME=$(getent passwd $DESKTOP_USER | cut -d: -f6)
+USER=$(id -nu 1000)
+HOME=$(getent passwd $USER | cut -d: -f6)
 
 # SteamOS autologin SDDM config
 AUTOLOGIN_CONF='/etc/sddm.conf.d/zz-steamos-autologin.conf'
 
 # Configure autologin if Steam has been updated
-if [[ -f "$DESKTOP_HOME/.local/share/Steam/ubuntu12_32/steamui.so" ]]; then
+if [[ -f "$HOME/.local/share/Steam/ubuntu12_32/steamui.so" ]]; then
     cat > "$AUTOLOGIN_CONF" << CONFIG
 [Autologin]
-User=$DESKTOP_USER
+User=$USER
 Session=gamescope-session.desktop
 CONFIG
     echo "Updated SDDM autologin configuration"
@@ -126,6 +126,8 @@ timeout 10 bash -c 'while systemctl is-active kodi-gbm.service >/dev/null 2>&1; 
 
 # Start Gaming Mode
 systemctl start sddm.service
+
+sudo -Eu $USER qdbus org.kde.Shutdown /Shutdown org.kde.Shutdown.logout
 
 echo "Successfully switched to Gaming Mode"
 EOF
