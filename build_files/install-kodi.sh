@@ -285,7 +285,7 @@ install_kodi_gbm_service() {
     log_info "Installing kodi_gbm_service..."
 
     # Make a config file for kodi gmb serivce env settings
-    cat > "/etc/conf.d/kodi-env-config" << 'EOF'
+    cat > "/etc/conf.d/kodi-standalone" << 'EOF'
 KODI_AE_SINK=ALSA
 EOF
 
@@ -296,12 +296,12 @@ SUBSYSTEM=="dma_heap", KERNEL=="system", GROUP="video", MODE="0660"
 EOF
 
 
-    cat > "/usr/lib/tmpfiles.d/kodi-gbm.conf" << 'EOF'
+    cat > "/usr/lib/tmpfiles.d/kodi-standalone.conf" << 'EOF'
 d /var/lib/kodi 0750 kodi kodi - -
 Z /var/lib/kodi - kodi kodi - -
 EOF
     # Create sysusers configuration
-    cat > "/usr/lib/sysusers.d/kodi-gbm.conf" << 'EOF'
+    cat > "/usr/lib/sysusers.d/kodi-standalone.conf" << 'EOF'
 g kodi - -
 u kodi - "Kodi User" /var/lib/kodi /usr/sbin/nologin
 m kodi audio
@@ -340,10 +340,9 @@ Group=kodi
 SupplementaryGroups=audio video render input optical
 PAMName=login
 TTYPath=/dev/tty1
-ExecStartPre=/usr/bin/chvt 1
 ExecStart=/usr/bin/kodi-standalone
 ExecStop=/usr/bin/killall --exact --wait kodi.bin
-EnvironmentFile=--/etc/conf.d/kodi-env-config
+EnvironmentFile=-/etc/conf.d/kodi-standalone
 Restart=on-abort
 StandardInput=tty
 StandardOutput=journal
