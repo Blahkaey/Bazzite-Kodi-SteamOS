@@ -165,7 +165,7 @@ main() {
     install_packages "GRAPHICS" true || die "Failed to install graphics libraries"
     build_libva
     install_packages "OPTIONAL" false  # Optional, don't fail
-    install_packages "SERVICE" true || die "Failed to install service packages"
+
 }
 
 # Call main with all arguments
