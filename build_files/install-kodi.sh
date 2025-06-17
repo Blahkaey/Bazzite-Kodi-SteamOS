@@ -380,6 +380,7 @@ Group=kodi
 SupplementaryGroups=audio video render input optical
 PAMName=login
 TTYPath=/dev/tty1
+ExecStartPre=/usr/bin/chvt 1
 ExecStart=/usr/bin/kodi-standalone
 ExecStop=/usr/bin/killall --exact --wait kodi.bin
 EnvironmentFile=-/etc/conf.d/kodi-standalone
