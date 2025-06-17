@@ -296,10 +296,17 @@ SUBSYSTEM=="dma_heap", KERNEL=="system", GROUP="video", MODE="0660"
 EOF
 
 
-    cat > "/usr/lib/tmpfiles.d/kodi-standalone.conf" << 'EOF'
-d /var/lib/kodi 0750 kodi kodi - -
+cat > "/usr/lib/tmpfiles.d/kodi-standalone.conf" << 'EOF'
+d /var/lib/kodi 0770 kodi kodi - -
 Z /var/lib/kodi - kodi kodi - -
 EOF
+
+# Add the primary user (uid 1000) to kodi group
+if id 1000 &>/dev/null; then
+    usermod -a -G kodi $(id -nu 1000)
+    log_success "Added user $(id -nu 1000) to kodi group"
+fi
+
     # Create sysusers configuration
     cat > "/usr/lib/sysusers.d/kodi-standalone.conf" << 'EOF'
 g kodi - -
