@@ -500,7 +500,7 @@ ExecStartPre=/bin/bash -c 'if [ -f /tmp/kodi-switch-request ] && [ "$(cat /tmp/k
 ExecStart=/usr/bin/kodi-standalone
 
 # Post-stop: if there's a switch request, execute it
-ExecStopPost=/bin/bash -c 'if [ -f /tmp/kodi-switch-request ]; then MODE=$(cat /tmp/kodi-switch-request); rm -f /tmp/kodi-switch-request; if [ "$MODE" == "gamemode" ]; then /usr/bin/switch-to-gamemode --elevated-from-kodi; fi; fi'
+ExecStopPost=/bin/bash -c 'if [ -f /var/lib/kodi/switch-request ]; then rm -f /var/lib/kodi/switch-request; fi; /usr/bin/switch-to-gamemode --elevated-from-kodi'
 
 # Clean stop
 ExecStop=/usr/bin/killall --exact --wait kodi-gbm kodi.bin
