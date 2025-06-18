@@ -4,7 +4,11 @@ set -euo pipefail
 source "/ctx/utility.sh"
 
 create_polkit_rule() {
+    log_info "Creating polkit rules for passwordless switching..."
+
+    # Create polkit rules for passwordless operation
     cat > "/usr/share/polkit-1/rules.d/49-kodi-switching.rules" << 'EOF'
+// Allow wheel group to manage specific systemd services without password
 polkit.addRule(function(action, subject) {
     if ((action.id == "org.freedesktop.systemd1.manage-units") &&
         (action.lookup("unit") == "kodi-gbm.service" ||
@@ -15,7 +19,40 @@ polkit.addRule(function(action, subject) {
         return polkit.Result.YES;
     }
 });
+
+// Allow passwordless execution of switch-to-kodi via pkexec
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        action.lookup("program") == "/usr/bin/switch-to-kodi" &&
+        subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+});
+
+// Allow passwordless execution of switch-to-gamemode via pkexec
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        action.lookup("program") == "/usr/bin/switch-to-gamemode" &&
+        subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+});
+
+// Also allow if the scripts are called with full path or from different locations
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        subject.isInGroup("wheel")) {
+        var program = action.lookup("program");
+        // Check for our switching scripts
+        if (program.indexOf("switch-to-kodi") !== -1 ||
+            program.indexOf("switch-to-gamemode") !== -1) {
+            return polkit.Result.YES;
+        }
+    }
+});
 EOF
+
+    log_success "Polkit rules created for passwordless switching"
 }
 
 install_switch_to_kodi_scripts() {
