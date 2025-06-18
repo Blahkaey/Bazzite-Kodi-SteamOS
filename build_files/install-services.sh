@@ -277,10 +277,10 @@ EOF
 # This script is designed to be called from within Kodi
 
 # Write a flag file that Kodi can check on next startup
-echo "gamemode" > /tmp/kodi-switch-request
+echo "gamemode" > /var/lib/kodi/switch-request
 
-# Use systemctl to stop ourselves (this avoids the polkit hang)
-sudo systemctl stop kodi-gbm.service &
+# Use systemctl without sudo - polkit should handle auth
+/usr/bin/systemctl stop kodi-gbm.service &
 
 # The service stop will kill this script, but the switch will complete
 exit 0
@@ -504,7 +504,7 @@ ExecStartPre=/bin/bash -c 'if [ -f /tmp/kodi-switch-request ] && [ "$(cat /tmp/k
 ExecStart=/usr/bin/kodi-standalone
 
 # Post-stop: if there's a switch request, execute it
-ExecStopPost=/bin/bash -c 'if [ -f /tmp/kodi-switch-request ]; then MODE=$(cat /tmp/kodi-switch-request); rm -f /tmp/kodi-switch-request; if [ "$MODE" == "gamemode" ]; then /usr/bin/switch-to-gamemode --elevated-from-kodi; fi; fi'
+ExecStopPost=/bin/bash -c 'if [ -f /var/lib/kodi/switch-request ]; then rm -f /var/lib/kodi/switch-request; fi; /usr/bin/switch-to-gamemode --elevated-from-kodi'
 
 # Clean stop
 ExecStop=/usr/bin/killall --exact --wait kodi-gbm kodi.bin
