@@ -21,9 +21,18 @@ EOF
 install_switch_to_kodi_scripts() {
     log_info "Installing switch to kodi scripts..."
 
+  # Step 1
+    cat > "/usr/bin/switch-to-kodi" << 'EOF'
+#!/bin/bash
+# Switch from Gaming Mode to Kodi
+exec systemctl start switch-to-kodi.service
+EOF
+    chmod +x "/usr/bin/switch-to-kodi"
+
+    # Step 2
     cat > "/usr/lib/systemd/system/switch-to-kodi.service" << 'EOF'
 [Unit]
-Description=Switch from Gaming Mode to Kodi HDR
+Description=Switch from Gaming Mode to Kodi
 After=multi-user.target
 Conflicts=sddm.service
 
@@ -37,56 +46,66 @@ StandardOutput=journal
 StandardError=journal
 EOF
 
+    # Step 3
     cat > "/usr/bin/switch-to-kodi-root" << 'EOF'
 #!/bin/bash
 set -euo pipefail
 
 echo "Switching to Kodi HDR mode..."
 
-# Stop the current gaming session
-if systemctl --user is-active gamescope-session-plus@steam.service >/dev/null 2>&1; then
-    systemctl --user stop gamescope-session-plus@steam.service 2>/dev/null || true
-fi
 
-# Kill any remaining Steam/Gamescope processes
-pkill -f gamescope || true
-pkill -f steam || true
-sleep 0.5
-
-# Stop SDDM and start kodi-gbm service
 systemctl stop sddm.service
 
-# Wait for SDDM to fully stop
-timeout 10 bash -c 'while systemctl is-active sddm.service >/dev/null 2>&1; do sleep 0.5; done'
 
-# Start Kodi
 systemctl start kodi-gbm.service
 
 echo "Successfully switched to Kodi HDR"
 EOF
     chmod +x "/usr/bin/switch-to-kodi-root"
 
-
-    cat > "/usr/bin/switch-to-kodi" << 'EOF'
-#!/bin/bash
-# Switch from Gaming Mode to Kodi
-exec systemctl start switch-to-kodi.service
-EOF
-    chmod +x "/usr/bin/switch-to-kodi"
-
     log_success "Installed switch to kodi scripts..."
 }
+
 
 install_switch_to_gamemode_scripts() {
     log_info "Installing switch to gamemode scripts..."
 
-cat > "/usr/bin/switch-to-gamemode-root" << 'EOF'
+    # Step 1
+    cat > "/usr/bin/switch-to-gamemode" << 'EOF'
+#!/bin/bash
+# Switch from Kodi to Gaming Mode
+    systemctl start switch-to-gamemode.service
+fi
+EOF
+chmod +x "/usr/bin/switch-to-gamemode"
+
+    # Step 2
+    cat > "/usr/lib/systemd/system/switch-to-gamemode.service" << 'EOF'
+[Unit]
+Description=Switch from Kodi to Gaming Mode
+After=multi-user.target
+Conflicts=kodi-gdm.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=no
+User=root
+Group=root
+ExecStart=/usr/bin/switch-to-gamemode-root
+StandardOutput=journal
+StandardError=journal
+EOF
+
+    # Step 3
+    cat > "/usr/bin/switch-to-gamemode-root" << 'EOF'
 #!/bin/bash
 set -euo pipefail
 
 echo "Switching to Gaming Mode..."
 
-# Get desktop user info
+IMAGE_INFO="/usr/share/ublue-os/image-info.json"
+BASE_IMAGE_NAME=$(jq -r '."base-image-name"' < $IMAGE_INFO)
+
 USER=$(id -nu 1000)
 HOME=$(getent passwd $USER | cut -d: -f6)
 
@@ -94,60 +113,29 @@ HOME=$(getent passwd $USER | cut -d: -f6)
 AUTOLOGIN_CONF='/etc/sddm.conf.d/zz-steamos-autologin.conf'
 
 # Configure autologin if Steam has been updated
-if [[ -f "$HOME/.local/share/Steam/ubuntu12_32/steamui.so" ]]; then
-    cat > "$AUTOLOGIN_CONF" << CONFIG
-[Autologin]
-User=$USER
-Session=gamescope-session.desktop
-CONFIG
-    echo "Updated SDDM autologin configuration"
-else
-    echo "Warning: Steam not found, skipping autologin configuration"
+if [[ -f $HOME/.local/share/Steam/ubuntu12_32/steamui.so ]]; then
+  {
+    echo "[Autologin]"
+    echo "Session=gamescope-session.desktop"
+  } > "$AUTOLOGIN_CONF"
 fi
 
-# Use systemd to handle the service switch properly
-# This tells systemd to stop kodi-gbm and start sddm, handling conflicts automatically
-systemctl --no-block isolate graphical.target
-systemctl --no-block stop kodi-gbm.service
-systemctl --no-block start sddm.service
+systemctl stop kodi-gbm.service
+sleep 0.5
+gamescope-session-plus steam
+sleep 0.5
+
+#if [[ $BASE_IMAGE_NAME = "kinoite" ]]; then
+#  sudo -Eu $USER qdbus org.kde.Shutdown /Shutdown org.kde.Shutdown.logout
+#elif [[ $BASE_IMAGE_NAME = "silverblue" ]]; then
+#  sudo -Eu $USER gnome-session-quit --logout --no-prompt
+#fi
+
 
 echo "Switch initiated - services are transitioning..."
 EOF
 chmod +x "/usr/bin/switch-to-gamemode-root"
 
-
-cat > "/usr/lib/systemd/system/kodi-switch-handler.service" << 'EOF'
-[Unit]
-Description=Async handler for switching from Kodi
-After=kodi-gbm.service
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/kodi-switch-handler
-RemainAfterExit=no
-EOF
-
-
-cat > "/usr/bin/kodi-switch-handler" << 'EOF'
-#!/bin/bash
-# This script handles the switch asynchronously to avoid deadlock
-
-# Wait a moment to let Kodi finish processing the command
-sleep 1
-
-# Now perform the actual switch
-/usr/bin/switch-to-gamemode-root
-EOF
-chmod +x "/usr/bin/kodi-switch-handler"
-
-
-cat > "/usr/bin/switch-to-gamemode" << 'EOF'
-#!/bin/bash
-# Switch from Kodi to Gaming Mode
-    systemctl start --no-block kodi-switch-handler.service
-fi
-EOF
-chmod +x "/usr/bin/switch-to-gamemode"
 
 log_success "Installed switch to gamemode scripts..."
 }
@@ -155,7 +143,6 @@ log_success "Installed switch to gamemode scripts..."
 create_desktop_entry() {
     log_info "Creating desktop entry..."
 
-    # Desktop entry to switch to Kodi (visible in Gaming Mode)
     cat > "/usr/share/applications/switch-to-kodi.desktop" << 'EOF'
 [Desktop Entry]
 Name=Switch to Kodi HDR
@@ -168,7 +155,6 @@ Terminal=false
 StartupNotify=false
 EOF
 
-    # Make it executable for Steam
     chmod 644 "/usr/share/applications/switch-to-kodi.desktop"
 
     log_success "Desktop entries created"
@@ -230,6 +216,67 @@ EOF
     log_success "kodi-standalone patched for GBM support"
 }
 
+install_kodi_gbm_service() {
+    log_info "Installing kodi_gbm_service..."
+
+    # Ensures that /dev/dma_heap/linux* and /dev/dma_heap/system devices are made accessible
+    cat > "/usr/lib/udev/rules.d/99-kodi.rules" << 'EOF'
+SUBSYSTEM=="dma_heap", KERNEL=="linux*", GROUP="video", MODE="0660"
+SUBSYSTEM=="dma_heap", KERNEL=="system", GROUP="video", MODE="0660"
+EOF
+
+    cat > "/usr/lib/tmpfiles.d/kodi-standalone.conf" << 'EOF'
+d /var/lib/kodi 0750 kodi kodi - -
+Z /var/lib/kodi - kodi kodi - -
+EOF
+
+    cat > "/usr/lib/sysusers.d/kodi-standalone.conf" << 'EOF'
+g kodi - -
+u! kodi - "Kodi User" /var/lib/kodi
+EOF
+
+    # Run systemd-sysusers to create the kodi user
+    systemd-sysusers
+
+    # Ensure kodi account never expires
+    chage -E -1 kodi
+    chage -M -1 kodi
+    log_success "Removed expiration from kodi user"
+
+
+    # Make kodi-gbm.service
+    cat > "/usr/lib/systemd/system/kodi-gbm.service" << 'EOF'
+[Unit]
+Description=Kodi standalone (GBM)
+After=remote-fs.target systemd-user-sessions.service network-online.target nss-lookup.target sound.target bluetooth.target polkit.service upower.service
+Wants=network-online.target polkit.service upower.service
+Conflicts=getty@tty1.service sddm.service
+
+[Service]
+User=kodi
+Group=kodi
+SupplementaryGroups=audio video render input optical
+PAMName=login
+TTYPath=/dev/tty1
+ExecStartPre=/usr/bin/chvt 1
+ExecStart=/usr/bin/kodi-standalone
+ExecStop=/usr/bin/killall --exact --wait kodi-gbm kodi.bin
+EnvironmentFile=-/etc/conf.d/kodi-standalone
+Restart=on-abort
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+Alias=display-manager.service
+EOF
+
+    # Disable the service (manual start via switching scripts)
+    systemctl disable kodi-gbm.service 2>/dev/null || true
+
+    log_success "Kodi_gbm_service installed"
+}
+
 
 
 # Main execution
@@ -241,6 +288,7 @@ main() {
     install_switch_to_gamemode_scripts
     create_desktop_entry
     patch_kodi_standalone_for_gbm
+    install_kodi_gbm_service
 
 
     log_success "All services configured for Kodi/Bazzite switching"

@@ -281,132 +281,13 @@ install_kodi() {
     log_success "Kodi installed"
 }
 
-install_kodi_gbm_service() {
-    log_info "Installing kodi_gbm_service..."
-
-    # Make a config file for kodi gmb serivce env settings
-    cat > "/etc/conf.d/kodi-standalone" << 'EOF'
-KODI_AE_SINK=ALSA
-EOF
-
-    # Ensures that /dev/dma_heap/linux* and /dev/dma_heap/system devices are made accessible
-    cat > "/usr/lib/udev/rules.d/99-kodi.rules" << 'EOF'
-SUBSYSTEM=="dma_heap", KERNEL=="linux*", GROUP="video", MODE="0660"
-SUBSYSTEM=="dma_heap", KERNEL=="system", GROUP="video", MODE="0660"
-EOF
-
-    cat > "/usr/lib/tmpfiles.d/kodi-standalone.conf" << 'EOF'
-d /var/lib/kodi 0750 kodi kodi - -
-Z /var/lib/kodi - kodi kodi - -
-EOF
-
-    # FIRST: Ensure all required groups exist
-    log_info "Creating required system groups..."
-    for group in audio video render input optical; do
-        if ! getent group "$group" >/dev/null 2>&1; then
-            groupadd -r "$group" 2>/dev/null || log_warning "Group $group may already exist"
-        fi
-    done
-
-    # Create sysusers configuration
-    cat > "/usr/lib/sysusers.d/kodi-standalone.conf" << 'EOF'
-g kodi - -
-u kodi - "Kodi User" /var/lib/kodi /usr/sbin/nologin
-EOF
-
-    # Run systemd-sysusers to create the kodi user (but NOT add to groups yet)
-    systemd-sysusers || log_warning "systemd-sysusers reported warnings (this is normal in container builds)"
-
-    # Now manually add kodi to all required groups using usermod
-    log_info "Adding kodi user to required groups..."
-
-    # Check if kodi user exists
-    if id kodi &>/dev/null; then
-        # Add to each group individually with error checking
-        for group in audio video render input optical; do
-            if getent group "$group" >/dev/null 2>&1; then
-                if usermod -a -G "$group" kodi 2>/dev/null; then
-                    log_success "Added kodi to $group group"
-                else
-                    log_error "Failed to add kodi to $group group"
-                fi
-            else
-                log_warning "Group $group does not exist"
-            fi
-        done
-
-        # Verify the groups were added
-        log_info "Verifying kodi group membership:"
-        groups kodi
-    else
-        log_error "Kodi user was not created!"
-        die "Failed to create kodi user"
-    fi
-
-    # Ensure kodi account never expires
-    chage -E -1 kodi
-    chage -M -1 kodi
-    log_success "Removed expiration from kodi user"
-
-    # Create a runtime group fix service (belt and suspenders approach)
-    cat > "/usr/lib/systemd/system/kodi-groups-fix.service" << 'EOF'
-[Unit]
-Description=Fix Kodi user group membership
-Before=kodi-gbm.service
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/usr/bin/bash -c 'for g in audio video render input optical; do usermod -a -G $g kodi 2>/dev/null || true; done'
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    # Enable the fix service
-    systemctl enable kodi-groups-fix.service 2>/dev/null || true
-
-    # Make kodi-gbm.service
-    cat > "/usr/lib/systemd/system/kodi-gbm.service" << 'EOF'
-[Unit]
-Description=Kodi standalone (GBM)
-After=remote-fs.target systemd-user-sessions.service network-online.target nss-lookup.target sound.target bluetooth.target polkit.service upower.service kodi-groups-fix.service
-Wants=network-online.target polkit.service upower.service kodi-groups-fix.service
-Conflicts=getty@tty1.service sddm.service gdm.service
-
-[Service]
-User=kodi
-Group=kodi
-SupplementaryGroups=audio video render input optical
-PAMName=login
-TTYPath=/dev/tty1
-ExecStart=/usr/bin/kodi-standalone
-ExecStop=/usr/bin/killall --exact --wait kodi.bin
-EnvironmentFile=-/etc/conf.d/kodi-standalone
-Restart=on-abort
-StandardInput=tty
-StandardOutput=journal
-StandardError=journal
-
-# Device access for controllers
-PrivateDevices=no
-[Install]
-Alias=display-manager.service
-EOF
-
-    # Disable the service (manual start via switching scripts)
-    systemctl disable kodi-gbm.service 2>/dev/null || true
-
-    log_success "Kodi_gbm_service installed"
-}
-
 # Main execution
 main() {
     clone_kodi_source
     configure_build
     build_kodi
     install_kodi
-    install_kodi_gbm_service
+
 
     log_success "Kodi build file complete"
 
