@@ -471,6 +471,10 @@ EOF
     # Create kodi user
     systemd-sysusers
 
+    # Add kodi to wheel group for polkit access
+    usermod -a -G wheel kodi 2>/dev/null || true
+
+
     # Remove password expiration
     chage -E -1 kodi
     chage -M -1 kodi
