@@ -6,7 +6,6 @@ source "/ctx/utility.sh"
 create_polkit_rule() {
     log_info "Creating polkit rules for passwordless switching..."
 
-    # Create polkit rules for passwordless operation
     cat > "/usr/share/polkit-1/rules.d/49-kodi-switching.rules" << 'EOF'
 // Allow wheel group to manage specific systemd services without password
 polkit.addRule(function(action, subject) {
@@ -20,32 +19,24 @@ polkit.addRule(function(action, subject) {
     }
 });
 
-// Allow passwordless execution of switch-to-kodi via pkexec
+// Allow kodi user to switch sessions without authentication
 polkit.addRule(function(action, subject) {
-    if (action.id == "org.freedesktop.policykit.exec" &&
-        action.lookup("program") == "/usr/bin/switch-to-kodi" &&
-        subject.isInGroup("wheel")) {
+    if ((action.id == "org.freedesktop.policykit.exec" ||
+         action.id == "org.freedesktop.systemd1.manage-units") &&
+        subject.user == "kodi") {
         return polkit.Result.YES;
     }
 });
 
-// Allow passwordless execution of switch-to-gamemode via pkexec
+// Allow passwordless execution of switch scripts
 polkit.addRule(function(action, subject) {
-    if (action.id == "org.freedesktop.policykit.exec" &&
-        action.lookup("program") == "/usr/bin/switch-to-gamemode" &&
-        subject.isInGroup("wheel")) {
-        return polkit.Result.YES;
-    }
-});
-
-// Also allow if the scripts are called with full path or from different locations
-polkit.addRule(function(action, subject) {
-    if (action.id == "org.freedesktop.policykit.exec" &&
-        subject.isInGroup("wheel")) {
+    if (action.id == "org.freedesktop.policykit.exec") {
         var program = action.lookup("program");
-        // Check for our switching scripts
-        if (program.indexOf("switch-to-kodi") !== -1 ||
-            program.indexOf("switch-to-gamemode") !== -1) {
+        if ((program == "/usr/bin/switch-to-kodi" ||
+             program == "/usr/bin/switch-to-gamemode" ||
+             program.indexOf("switch-to-kodi") !== -1 ||
+             program.indexOf("switch-to-gamemode") !== -1) &&
+            (subject.isInGroup("wheel") || subject.user == "kodi")) {
             return polkit.Result.YES;
         }
     }
@@ -159,8 +150,29 @@ SENTINEL_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/session-select"
 STATE_FILE="/var/lib/kodi-session-state"
 IMAGE_INFO="/usr/share/ublue-os/image-info.json"
 
+# Detect if we're running from within Kodi session
+detect_kodi_session() {
+    # Check if we're the kodi user or if kodi-gbm is our parent
+    if [[ "$USER" == "kodi" ]] || [[ "$(whoami)" == "kodi" ]]; then
+        return 0
+    fi
+
+    # Check if kodi-gbm service is active and we're on tty1
+    if systemctl is-active --quiet kodi-gbm.service && [[ "$(tty 2>/dev/null)" == "/dev/tty1" ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
 # Stage 1: User execution - update user preference
 if [[ $EUID != 0 ]]; then
+    # If running from within Kodi, skip user preference update
+    if detect_kodi_session; then
+        echo "Running from Kodi session, switching directly..."
+        exec sudo "$(realpath $0)" --elevated-from-kodi
+    fi
+
     [[ -n ${HOME+x} ]] || die "No \$HOME variable"
 
     # Check current state
@@ -181,13 +193,14 @@ if [[ $EUID != 0 ]]; then
 fi
 
 # Stage 2: Root execution - perform the switch
-[[ "$1" == "--elevated" ]] || die "This stage must be run via pkexec"
+[[ "$1" == "--elevated" || "$1" == "--elevated-from-kodi" ]] || die "This stage must be run via pkexec or sudo"
 
 echo "Switching to Gaming Mode..."
 
-# Update state file
+# Update state file with proper permissions
 mkdir -p "$(dirname "$STATE_FILE")"
 echo "gamescope" > "$STATE_FILE"
+chmod 666 "$STATE_FILE"
 
 # Check if Steam is available
 USER=$(id -nu 1000 2>/dev/null || echo "")
@@ -205,44 +218,74 @@ fi
     echo "Session=gamescope-session.desktop"
 } > "$CONF_FILE"
 
-# Stop Kodi if running
+# Stop Kodi if running - with force cleanup
 if systemctl is-active --quiet kodi-gbm.service; then
     echo "Stopping Kodi..."
-    systemctl stop kodi-gbm.service
 
-    # Ensure Kodi processes are fully stopped
-    timeout 5 bash -c 'while pgrep -x "kodi-gbm" > /dev/null; do sleep 0.5; done' || \
-        pkill -9 -f "kodi" 2>/dev/null || true
+    # First try graceful stop
+    systemctl stop kodi-gbm.service || true
 
+    # Give it a moment
+    sleep 2
+
+    # Force kill any remaining kodi processes
+    echo "Cleaning up Kodi processes..."
+    pkill -TERM -f "kodi" 2>/dev/null || true
     sleep 1
+    pkill -KILL -f "kodi" 2>/dev/null || true
+
+    # Clean up any hanging polkit authentication
+    pkill -f "polkit-agent-helper" 2>/dev/null || true
+
+    # Ensure TTY1 is released
+    if [[ "$1" == "--elevated-from-kodi" ]]; then
+        # If we're running from Kodi, we need to switch away from TTY1 first
+        chvt 2 2>/dev/null || true
+        sleep 0.5
+    fi
+
+    # Final cleanup
+    timeout 3 bash -c 'while pgrep -x "kodi-gbm" > /dev/null; do sleep 0.5; done' || \
+        pkill -9 -f "kodi" 2>/dev/null || true
 fi
 
-# Reset SDDM to clear any failed state
+# Reset any failed services
 systemctl reset-failed sddm.service 2>/dev/null || true
+systemctl reset-failed kodi-gbm.service 2>/dev/null || true
+
+# Ensure we're on TTY1 for SDDM
+chvt 1 2>/dev/null || true
 
 # Start SDDM (which will auto-start gamescope session)
 echo "Starting display manager..."
 if ! systemctl restart sddm.service; then
-    die "Failed to start display manager"
+    # If restart fails, try stop then start
+    systemctl stop sddm.service 2>/dev/null || true
+    sleep 1
+    if ! systemctl start sddm.service; then
+        die "Failed to start display manager"
+    fi
 fi
 
 echo "Successfully switched to Gaming Mode"
 EOF
     chmod +x "/usr/bin/switch-to-gamemode"
 
-    # Systemd service (simplified)
-    cat > "/usr/lib/systemd/system/switch-to-gamemode.service" << 'EOF'
-[Unit]
-Description=Switch to Gaming Mode
-After=multi-user.target
 
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/switch-to-gamemode --elevated
-RemainAfterExit=no
-StandardOutput=journal
-StandardError=journal
+    cat > "/usr/bin/kodi-exit" << 'EOF'
+#!/bin/bash
+# This script is designed to be called from within Kodi
+
+# Write a flag file that Kodi can check on next startup
+echo "gamemode" > /tmp/kodi-switch-request
+
+# Use systemctl to stop ourselves (this avoids the polkit hang)
+sudo systemctl stop kodi-gbm.service &
+
+# The service stop will kill this script, but the switch will complete
+exit 0
 EOF
+    chmod +x "/usr/bin/kodi-exit"
 
     log_success "Installed improved switch to gamemode scripts"
 }
@@ -416,7 +459,7 @@ EOF
     cat > "/usr/lib/tmpfiles.d/kodi-standalone.conf" << 'EOF'
 d /var/lib/kodi 0750 kodi kodi - -
 Z /var/lib/kodi - kodi kodi - -
-f /var/lib/kodi-session-state 0644 root root - -
+f /var/lib/kodi-session-state 0666 root root - -
 EOF
 
     # sysusers configuration
@@ -450,8 +493,14 @@ TTYPath=/dev/tty1
 # Pre-start: ensure we're on TTY1
 ExecStartPre=/usr/bin/chvt 1
 
+# Check for switch request
+ExecStartPre=/bin/bash -c 'if [ -f /tmp/kodi-switch-request ] && [ "$(cat /tmp/kodi-switch-request)" == "gamemode" ]; then rm -f /tmp/kodi-switch-request; /usr/bin/switch-to-gamemode --elevated-from-kodi; exit 1; fi'
+
 # Main process
 ExecStart=/usr/bin/kodi-standalone
+
+# Post-stop: if there's a switch request, execute it
+ExecStopPost=/bin/bash -c 'if [ -f /tmp/kodi-switch-request ]; then MODE=$(cat /tmp/kodi-switch-request); rm -f /tmp/kodi-switch-request; if [ "$MODE" == "gamemode" ]; then /usr/bin/switch-to-gamemode --elevated-from-kodi; fi; fi'
 
 # Clean stop
 ExecStop=/usr/bin/killall --exact --wait kodi-gbm kodi.bin
@@ -466,13 +515,6 @@ RestartSec=5s
 
 # Resource limits
 LimitNOFILE=65536
-LimitNICE=-20
-
-# IO/CPU scheduling
-IOSchedulingClass=best-effort
-IOSchedulingPriority=0
-CPUSchedulingPolicy=fifo
-CPUSchedulingPriority=50
 
 # Standard IO
 StandardInput=tty
