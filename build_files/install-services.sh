@@ -277,10 +277,10 @@ EOF
 # This script is designed to be called from within Kodi
 
 # Write a flag file that Kodi can check on next startup
-echo "gamemode" > /tmp/kodi-switch-request
+echo "gamemode" > /var/lib/kodi/switch-request
 
-# Use systemctl to stop ourselves (this avoids the polkit hang)
-sudo systemctl stop kodi-gbm.service &
+# Use systemctl without sudo - polkit should handle auth
+/usr/bin/systemctl stop kodi-gbm.service &
 
 # The service stop will kill this script, but the switch will complete
 exit 0
