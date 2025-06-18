@@ -277,7 +277,7 @@ EOF
 # This script is designed to be called from within Kodi
 
 # Write a flag file that Kodi can check on next startup
-echo "gamemode" > /var/lib/kodi/switch-request
+echo "gamemode" > /home/blake/.config/kodi-switch-request
 
 # Use systemctl without sudo - polkit should handle auth
 /usr/bin/systemctl stop kodi-gbm.service &
@@ -498,7 +498,7 @@ TTYPath=/dev/tty1
 ExecStartPre=/usr/bin/chvt 1
 
 # Check for switch request
-ExecStartPre=/bin/bash -c 'if [ -f /tmp/kodi-switch-request ] && [ "$(cat /tmp/kodi-switch-request)" == "gamemode" ]; then rm -f /tmp/kodi-switch-request; /usr/bin/switch-to-gamemode --elevated-from-kodi; exit 1; fi'
+ExecStopPost=/bin/bash -c 'if [ -f /home/blake/.config/kodi-switch-request ]; then rm -f /home/blake/.config/kodi-switch-request; fi; /usr/bin/switch-to-gamemode --elevated-from-kodi'
 
 # Main process
 ExecStart=/usr/bin/kodi-standalone
