@@ -112,7 +112,7 @@ switch_to_kodi() {
     log_info "Switching to Kodi HDR mode..."
 
     # Check if already in Kodi mode
-    local current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
+    current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
     if [[ "$current_state" == "kodi" ]] && systemctl is-active --quiet kodi-gbm.service; then
         log_info "Already in Kodi mode"
         return 0
@@ -161,7 +161,7 @@ switch_to_gamemode() {
     log_info "Switching to Gaming mode..."
 
     # Check if already in gaming mode
-    local current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
+    current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
     if [[ "$current_state" == "gamemode" ]] && systemctl is-active --quiet sddm.service; then
         log_info "Already in Gaming mode"
         return 0
@@ -242,7 +242,7 @@ while true; do
     fi
 
     # Health check - ensure state file matches reality
-    local current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
+    current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
     if [[ "$current_state" == "kodi" ]] && ! systemctl is-active --quiet kodi-gbm.service; then
         log_info "State mismatch detected: state=kodi but service not running"
         echo "unknown" > "$STATE_FILE"
