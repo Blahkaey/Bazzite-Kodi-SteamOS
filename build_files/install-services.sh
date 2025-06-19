@@ -498,7 +498,7 @@ ExecStartPre=/usr/bin/chvt 1
 
 ExecStart=/usr/bin/kodi-standalone
 ExecStop=-/usr/bin/killall --exact kodi-gbm
-ExecStopPost=-/bin/bash -c 'rm -f /home/blake/.config/kodi-switch-request; /usr/bin/switch-to-gamemode --elevated-from-kodi'
+ExecStopPost=-/usr/bin/switch-to-gamemode --elevated-from-kodi
 
 # Environment
 EnvironmentFile=-/etc/conf.d/kodi-standalone
