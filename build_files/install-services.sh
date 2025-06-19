@@ -494,20 +494,11 @@ SupplementaryGroups=audio video render input optical
 PAMName=login
 TTYPath=/dev/tty1
 
-# Pre-start: ensure we're on TTY1
 ExecStartPre=/usr/bin/chvt 1
 
-# Check for switch request
-ExecStopPost=/bin/bash -c 'if [ -f /home/blake/.config/kodi-switch-request ]; then rm -f /home/blake/.config/kodi-switch-request; fi; /usr/bin/switch-to-gamemode --elevated-from-kodi'
-
-# Main process
 ExecStart=/usr/bin/kodi-standalone
-
-# Post-stop: if there's a switch request, execute it
-ExecStopPost=/bin/bash -c 'if [ -f /var/lib/kodi/switch-request ]; then rm -f /var/lib/kodi/switch-request; fi; /usr/bin/switch-to-gamemode --elevated-from-kodi'
-
-# Clean stop
-ExecStop=/usr/bin/killall --exact --wait kodi-gbm kodi.bin
+ExecStop=-/usr/bin/killall --exact kodi-gbm
+ExecStopPost=-/bin/bash -c 'rm -f /home/blake/.config/kodi-switch-request; /usr/bin/switch-to-gamemode --elevated-from-kodi'
 
 # Environment
 EnvironmentFile=-/etc/conf.d/kodi-standalone
@@ -516,6 +507,7 @@ Environment="HOME=/var/lib/kodi"
 # Session management
 Restart=on-failure
 RestartSec=5s
+TimeoutStopSec=10
 
 # Resource limits
 LimitNOFILE=65536
