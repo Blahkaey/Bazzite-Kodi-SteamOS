@@ -4,304 +4,363 @@ set -euo pipefail
 source "/ctx/utility.sh"
 
 create_polkit_rule() {
-    log_info "Creating polkit rules for passwordless switching..."
+    log_info "Creating polkit rules for service management..."
 
     cat > "/usr/share/polkit-1/rules.d/49-kodi-switching.rules" << 'EOF'
 // Allow wheel group to manage specific systemd services without password
 polkit.addRule(function(action, subject) {
     if ((action.id == "org.freedesktop.systemd1.manage-units") &&
         (action.lookup("unit") == "kodi-gbm.service" ||
-         action.lookup("unit") == "switch-to-kodi.service" ||
-         action.lookup("unit") == "switch-to-gamemode.service" ||
-         action.lookup("unit") == "sddm.service") &&
+         action.lookup("unit") == "sddm.service" ||
+         action.lookup("unit") == "session-switch-handler.service") &&
         subject.isInGroup("wheel")) {
         return polkit.Result.YES;
     }
 });
 
-// Allow kodi user to switch sessions without authentication
+// Allow kodi user to restart the session-switch-handler service
 polkit.addRule(function(action, subject) {
-    if ((action.id == "org.freedesktop.policykit.exec" ||
-         action.id == "org.freedesktop.systemd1.manage-units") &&
+    if ((action.id == "org.freedesktop.systemd1.manage-units") &&
+        (action.lookup("unit") == "session-switch-handler.service") &&
         subject.user == "kodi") {
         return polkit.Result.YES;
     }
 });
-
-// Allow passwordless execution of switch scripts
-polkit.addRule(function(action, subject) {
-    if (action.id == "org.freedesktop.policykit.exec") {
-        var program = action.lookup("program");
-        if ((program == "/usr/bin/switch-to-kodi" ||
-             program == "/usr/bin/switch-to-gamemode" ||
-             program.indexOf("switch-to-kodi") !== -1 ||
-             program.indexOf("switch-to-gamemode") !== -1) &&
-            (subject.isInGroup("wheel") || subject.user == "kodi")) {
-            return polkit.Result.YES;
-        }
-    }
-});
 EOF
 
-    log_success "Polkit rules created for passwordless switching"
+    log_success "Polkit rules created"
 }
 
-install_switch_to_kodi_scripts() {
-    log_info "Installing improved switch to kodi scripts..."
+install_session_switch_handler() {
+    log_info "Installing session switch handler daemon..."
 
-    # Main user-facing script
-    cat > "/usr/bin/switch-to-kodi" << 'EOF'
+    # Create the handler daemon
+    cat > "/usr/bin/session-switch-handler" << 'EOF'
 #!/bin/bash
-set -e
+#
+# Session Switch Handler Daemon
+# Watches for session switch requests and handles transitions cleanly
+#
 
-die() { echo >&2 "!! $*"; exit 1; }
+set -euo pipefail
 
 # Configuration
-CONF_FILE="/etc/sddm.conf.d/zz-steamos-autologin.conf"
-SENTINEL_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/session-select"
-STATE_FILE="/var/lib/kodi-session-state"
+TRIGGER_FILE="/var/run/session-switch-request"
+STATE_FILE="/var/lib/session-state"
+LOCK_FILE="/var/run/session-switch.lock"
+SDDM_CONF="/etc/sddm.conf.d/zz-steamos-autologin.conf"
+LOG_TAG="session-switch-handler"
 
-# Stage 1: User execution - update user preference
-if [[ $EUID != 0 ]]; then
-    [[ -n ${HOME+x} ]] || die "No \$HOME variable"
+# Logging functions
+log_info() {
+    logger -t "$LOG_TAG" -p info "$@"
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] INFO: $@"
+}
 
-    # Check current state
-    if [[ -f "$STATE_FILE" ]] && [[ "$(cat "$STATE_FILE" 2>/dev/null)" == "kodi" ]]; then
-        echo "Already in Kodi mode"
-        exit 0
+log_error() {
+    logger -t "$LOG_TAG" -p err "$@"
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] ERROR: $@" >&2
+}
+
+# Ensure runtime directory exists
+mkdir -p /var/run
+mkdir -p /var/lib
+
+# Initialize trigger file with proper permissions
+touch "$TRIGGER_FILE"
+chmod 666 "$TRIGGER_FILE"
+echo -n "" > "$TRIGGER_FILE"
+
+# Initialize state file
+if [[ ! -f "$STATE_FILE" ]]; then
+    # Try to detect current state
+    if systemctl is-active --quiet kodi-gbm.service; then
+        echo "kodi" > "$STATE_FILE"
+    elif systemctl is-active --quiet sddm.service; then
+        echo "gamemode" > "$STATE_FILE"
+    else
+        echo "unknown" > "$STATE_FILE"
+    fi
+fi
+chmod 644 "$STATE_FILE"
+
+log_info "Session switch handler started"
+
+# Function to clean up Kodi processes
+cleanup_kodi() {
+    log_info "Cleaning up Kodi processes..."
+
+    # First try graceful termination
+    pkill -TERM -f "kodi" 2>/dev/null || true
+
+    # Give processes time to exit cleanly
+    local count=0
+    while pgrep -f "kodi" >/dev/null && [ $count -lt 10 ]; do
+        sleep 0.5
+        ((count++))
+    done
+
+    # Force kill if still running
+    if pgrep -f "kodi" >/dev/null; then
+        log_info "Force killing remaining Kodi processes..."
+        pkill -KILL -f "kodi" 2>/dev/null || true
+    fi
+}
+
+# Function to switch to Kodi
+switch_to_kodi() {
+    log_info "Switching to Kodi HDR mode..."
+
+    # Check if already in Kodi mode
+    local current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
+    if [[ "$current_state" == "kodi" ]] && systemctl is-active --quiet kodi-gbm.service; then
+        log_info "Already in Kodi mode"
+        return 0
     fi
 
-    # Update user sentinel
-    mkdir -p "$(dirname "$SENTINEL_FILE")"
-    echo "kodi" > "$SENTINEL_FILE"
-    echo "Updated user session preference to Kodi"
+    # Update SDDM configuration for next boot
+    mkdir -p "$(dirname "$SDDM_CONF")"
+    {
+        echo "[Autologin]"
+        echo "Session=kodi-gbm-session.desktop"
+    } > "$SDDM_CONF"
 
-    # Re-execute as root with pkexec
-    export SENTINEL_CREATED=1
-    exec pkexec "$(realpath $0)" --elevated
-    exit 1
-fi
+    # Stop display manager if running
+    if systemctl is-active --quiet sddm.service; then
+        log_info "Stopping SDDM..."
+        systemctl stop sddm.service || {
+            log_error "Failed to stop SDDM"
+            return 1
+        }
 
-# Stage 2: Root execution - perform the switch
-[[ "$1" == "--elevated" ]] || die "This stage must be run via pkexec"
+        # Wait for gamescope to fully stop
+        sleep 3
+    fi
 
-echo "Switching to Kodi HDR mode..."
+    # Clean up any gaming processes
+    pkill -f "steam" 2>/dev/null || true
+    pkill -f "gamescope" 2>/dev/null || true
 
-# Update state file
-mkdir -p "$(dirname "$STATE_FILE")"
-echo "kodi" > "$STATE_FILE"
+    # Ensure we're on TTY1
+    chvt 1 2>/dev/null || true
 
-# Stop SDDM if running (this will cleanly stop gamescope session)
-if systemctl is-active --quiet sddm.service; then
-    echo "Stopping display manager..."
-    systemctl stop sddm.service
-    sleep 2  # Give processes time to clean up
-fi
+    # Start Kodi
+    log_info "Starting Kodi service..."
+    if systemctl start kodi-gbm.service; then
+        echo "kodi" > "$STATE_FILE"
+        log_info "Successfully switched to Kodi"
+        return 0
+    else
+        log_error "Failed to start Kodi service"
+        return 1
+    fi
+}
 
-# Ensure any hanging game processes are cleaned up
-pkill -f "steam" 2>/dev/null || true
-pkill -f "gamescope" 2>/dev/null || true
+# Function to switch to gaming mode
+switch_to_gamemode() {
+    log_info "Switching to Gaming mode..."
 
-# Configure SDDM for next boot (in case of reboot while in Kodi)
-{
-    echo "[Autologin]"
-    echo "Session=kodi-gbm-session.desktop"
-} > "$CONF_FILE"
+    # Check if already in gaming mode
+    local current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
+    if [[ "$current_state" == "gamemode" ]] && systemctl is-active --quiet sddm.service; then
+        log_info "Already in Gaming mode"
+        return 0
+    fi
 
-# Start Kodi
-if ! systemctl start kodi-gbm.service; then
-    die "Failed to start Kodi service"
-fi
+    # Update SDDM configuration
+    mkdir -p "$(dirname "$SDDM_CONF")"
+    {
+        echo "[Autologin]"
+        echo "Session=gamescope-session.desktop"
+    } > "$SDDM_CONF"
 
-echo "Successfully switched to Kodi HDR mode"
+    # Stop Kodi if running
+    if systemctl is-active --quiet kodi-gbm.service; then
+        log_info "Stopping Kodi service..."
+        systemctl stop kodi-gbm.service || true
+
+        # Wait a moment for clean shutdown
+        sleep 2
+
+        # Force cleanup any remaining processes
+        cleanup_kodi
+    fi
+
+    # Ensure we're on TTY1
+    chvt 1 2>/dev/null || true
+
+    # Reset any failed services
+    systemctl reset-failed sddm.service 2>/dev/null || true
+
+    # Start SDDM
+    log_info "Starting SDDM..."
+    if systemctl start sddm.service; then
+        echo "gamemode" > "$STATE_FILE"
+        log_info "Successfully switched to Gaming mode"
+        return 0
+    else
+        log_error "Failed to start SDDM"
+        return 1
+    fi
+}
+
+# Main loop
+log_info "Entering main loop, watching $TRIGGER_FILE"
+
+while true; do
+    # Wait for file change or timeout every 60 seconds for health check
+    if inotifywait -t 60 -e modify,create "$TRIGGER_FILE" 2>/dev/null; then
+        # Lock to prevent concurrent processing
+        exec 200>"$LOCK_FILE"
+        if ! flock -n 200; then
+            log_info "Another switch operation in progress, skipping..."
+            continue
+        fi
+
+        # Read and clear the request
+        REQUEST=$(cat "$TRIGGER_FILE" 2>/dev/null | tr -d '\n' | tr -d ' ')
+        echo -n "" > "$TRIGGER_FILE"
+
+        # Process the request
+        case "$REQUEST" in
+            "kodi")
+                switch_to_kodi
+                ;;
+            "gamemode"|"gaming")
+                switch_to_gamemode
+                ;;
+            "")
+                # Empty request, ignore
+                ;;
+            *)
+                log_error "Unknown request: $REQUEST"
+                ;;
+        esac
+
+        # Release lock
+        flock -u 200
+    fi
+
+    # Health check - ensure state file matches reality
+    local current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
+    if [[ "$current_state" == "kodi" ]] && ! systemctl is-active --quiet kodi-gbm.service; then
+        log_info "State mismatch detected: state=kodi but service not running"
+        echo "unknown" > "$STATE_FILE"
+    elif [[ "$current_state" == "gamemode" ]] && ! systemctl is-active --quiet sddm.service; then
+        log_info "State mismatch detected: state=gamemode but SDDM not running"
+        echo "unknown" > "$STATE_FILE"
+    fi
+done
 EOF
-    chmod +x "/usr/bin/switch-to-kodi"
+    chmod +x "/usr/bin/session-switch-handler"
 
-    # Systemd service (simplified, just calls the script)
-    cat > "/usr/lib/systemd/system/switch-to-kodi.service" << 'EOF'
+    # Create systemd service
+    cat > "/usr/lib/systemd/system/session-switch-handler.service" << 'EOF'
 [Unit]
-Description=Switch to Kodi HDR Mode
+Description=Session Switch Handler for Kodi/GameMode
 After=multi-user.target
+Before=sddm.service kodi-gbm.service
 
 [Service]
-Type=oneshot
-ExecStart=/usr/bin/switch-to-kodi --elevated
-RemainAfterExit=no
+Type=simple
+ExecStart=/usr/bin/session-switch-handler
+Restart=always
+RestartSec=5
 StandardOutput=journal
 StandardError=journal
+
+# Run as root for system control
+User=root
+Group=root
+
+# Ensure the service can control system services
+SupplementaryGroups=wheel
+
+# Resource limits
+LimitNOFILE=4096
+
+# Kill only the main process
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
 EOF
 
-    log_success "Installed improved switch to kodi scripts"
+    # Enable the service
+    systemctl enable session-switch-handler.service
+
+    log_success "Session switch handler installed and enabled"
 }
 
-install_switch_to_gamemode_scripts() {
-    log_info "Installing improved switch to gamemode scripts..."
+install_session_request_scripts() {
+    log_info "Installing session request scripts..."
 
-    # Main user-facing script
-    cat > "/usr/bin/switch-to-gamemode" << 'EOF'
+    # Simple script to request Kodi
+    cat > "/usr/bin/request-kodi" << 'EOF'
 #!/bin/bash
-set -e
-
-die() { echo >&2 "!! $*"; exit 1; }
-
-# Configuration
-CONF_FILE="/etc/sddm.conf.d/zz-steamos-autologin.conf"
-SENTINEL_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/session-select"
-STATE_FILE="/var/lib/kodi-session-state"
-IMAGE_INFO="/usr/share/ublue-os/image-info.json"
-
-# Detect if we're running from within Kodi session
-detect_kodi_session() {
-    # Check if we're the kodi user or if kodi-gbm is our parent
-    if [[ "$USER" == "kodi" ]] || [[ "$(whoami)" == "kodi" ]]; then
-        return 0
-    fi
-
-    # Check if kodi-gbm service is active and we're on tty1
-    if systemctl is-active --quiet kodi-gbm.service && [[ "$(tty 2>/dev/null)" == "/dev/tty1" ]]; then
-        return 0
-    fi
-
-    return 1
-}
-
-# Stage 1: User execution - update user preference
-if [[ $EUID != 0 ]]; then
-    # If running from within Kodi, skip user preference update
-    if detect_kodi_session; then
-        echo "Running from Kodi session, switching directly..."
-        exec sudo "$(realpath $0)" --elevated-from-kodi
-    fi
-
-    [[ -n ${HOME+x} ]] || die "No \$HOME variable"
-
-    # Check current state
-    if [[ -f "$STATE_FILE" ]] && [[ "$(cat "$STATE_FILE" 2>/dev/null)" == "gamescope" ]]; then
-        echo "Already in Gaming mode"
-        exit 0
-    fi
-
-    # Update user sentinel
-    mkdir -p "$(dirname "$SENTINEL_FILE")"
-    echo "gamescope" > "$SENTINEL_FILE"
-    echo "Updated user session preference to Gaming Mode"
-
-    # Re-execute as root with pkexec
-    export SENTINEL_CREATED=1
-    exec pkexec "$(realpath $0)" --elevated
-    exit 1
-fi
-
-# Stage 2: Root execution - perform the switch
-[[ "$1" == "--elevated" || "$1" == "--elevated-from-kodi" ]] || die "This stage must be run via pkexec or sudo"
-
-echo "Switching to Gaming Mode..."
-
-# Update state file with proper permissions
-mkdir -p "$(dirname "$STATE_FILE")"
-echo "gamescope" > "$STATE_FILE"
-chmod 666 "$STATE_FILE"
-
-# Check if Steam is available
-USER=$(id -nu 1000 2>/dev/null || echo "")
-if [[ -n "$USER" ]]; then
-    HOME=$(getent passwd $USER | cut -d: -f6)
-    if [[ ! -f "$HOME/.local/share/Steam/ubuntu12_32/steamui.so" ]] && \
-       [[ ! -f "/usr/bin/steam" ]]; then
-        echo "Warning: Steam installation not detected"
-    fi
-fi
-
-# Update SDDM autologin configuration
-{
-    echo "[Autologin]"
-    echo "Session=gamescope-session.desktop"
-} > "$CONF_FILE"
-
-# Stop Kodi if running - with force cleanup
-if systemctl is-active --quiet kodi-gbm.service; then
-    echo "Stopping Kodi..."
-
-    # First try graceful stop
-    systemctl stop kodi-gbm.service || true
-
-    # Give it a moment
-    sleep 2
-
-    # Force kill any remaining kodi processes
-    echo "Cleaning up Kodi processes..."
-    pkill -TERM -f "kodi" 2>/dev/null || true
-    sleep 1
-    pkill -KILL -f "kodi" 2>/dev/null || true
-
-    # Clean up any hanging polkit authentication
-    pkill -f "polkit-agent-helper" 2>/dev/null || true
-
-    # Ensure TTY1 is released
-    if [[ "$1" == "--elevated-from-kodi" ]]; then
-        # If we're running from Kodi, we need to switch away from TTY1 first
-        chvt 2 2>/dev/null || true
-        sleep 0.5
-    fi
-
-    # Final cleanup
-    timeout 3 bash -c 'while pgrep -x "kodi-gbm" > /dev/null; do sleep 0.5; done' || \
-        pkill -9 -f "kodi" 2>/dev/null || true
-fi
-
-# Reset any failed services
-systemctl reset-failed sddm.service 2>/dev/null || true
-systemctl reset-failed kodi-gbm.service 2>/dev/null || true
-
-# Ensure we're on TTY1 for SDDM
-chvt 1 2>/dev/null || true
-
-# Start SDDM (which will auto-start gamescope session)
-echo "Starting display manager..."
-if ! systemctl restart sddm.service; then
-    # If restart fails, try stop then start
-    systemctl stop sddm.service 2>/dev/null || true
-    sleep 1
-    if ! systemctl start sddm.service; then
-        die "Failed to start display manager"
-    fi
-fi
-
-echo "Successfully switched to Gaming Mode"
+# Request switch to Kodi mode
+echo "kodi" > /var/run/session-switch-request
+echo "Requested switch to Kodi mode"
 EOF
-    chmod +x "/usr/bin/switch-to-gamemode"
+    chmod +x "/usr/bin/request-kodi"
 
-
-    cat > "/usr/bin/kodi-exit" << 'EOF'
+    # Simple script to request gaming mode
+    cat > "/usr/bin/request-gamemode" << 'EOF'
 #!/bin/bash
-# This script is designed to be called from within Kodi
+# Request switch to Gaming mode
+echo "gamemode" > /var/run/session-switch-request
+echo "Requested switch to Gaming mode"
+EOF
+    chmod +x "/usr/bin/request-gamemode"
 
-# Write a flag file that Kodi can check on next startup
-echo "gamemode" > /home/blake/.config/kodi-switch-request
+    # Kodi-specific wrapper (for calling from within Kodi UI)
+    cat > "/usr/bin/kodi-request-gamemode" << 'EOF'
+#!/bin/bash
+# Kodi UI-friendly wrapper for requesting gaming mode
+# This can be called from Kodi's shutdown menu or mapped to a button
 
-# Use systemctl without sudo - polkit should handle auth
-/usr/bin/systemctl stop kodi-gbm.service &
+# Write the request
+echo "gamemode" > /var/run/session-switch-request
 
-# The service stop will kill this script, but the switch will complete
+# Give visual feedback if running in a terminal
+if [ -t 1 ]; then
+    echo "Switching to Gaming Mode..."
+    echo "Please wait..."
+fi
+
+# Exit successfully so Kodi knows the command worked
 exit 0
 EOF
-    chmod +x "/usr/bin/kodi-exit"
+    chmod +x "/usr/bin/kodi-request-gamemode"
 
-    log_success "Installed improved switch to gamemode scripts"
+    log_success "Session request scripts installed"
 }
 
 create_desktop_entries() {
     log_info "Creating desktop entries..."
 
-    # Switch to Kodi desktop entry
-    cat > "/usr/share/applications/switch-to-kodi.desktop" << 'EOF'
+    # Request Kodi desktop entry
+    cat > "/usr/share/applications/request-kodi.desktop" << 'EOF'
 [Desktop Entry]
 Name=Switch to Kodi HDR
 Comment=Switch to Kodi Media Center with HDR support
-Exec=/usr/bin/switch-to-kodi
+Exec=/usr/bin/request-kodi
 Icon=kodi
 Type=Application
 Categories=AudioVideo;Video;Player;TV;System;
+Terminal=false
+StartupNotify=false
+EOF
+
+    # Request Gaming Mode desktop entry
+    cat > "/usr/share/applications/request-gamemode.desktop" << 'EOF'
+[Desktop Entry]
+Name=Switch to Gaming Mode
+Comment=Switch back to Gaming Mode
+Exec=/usr/bin/request-gamemode
+Icon=steam
+Type=Application
+Categories=Game;System;
 Terminal=false
 StartupNotify=false
 EOF
@@ -316,9 +375,6 @@ Icon=kodi
 Type=Application
 EOF
 
-    # Optional: Add a Gaming Mode switcher to Kodi's menu
-    # This would need to be configured within Kodi's skin/addon system
-
     chmod 644 /usr/share/applications/*.desktop
     chmod 644 /usr/share/xsessions/*.desktop 2>/dev/null || true
 
@@ -332,31 +388,38 @@ install_session_query_script() {
 #!/bin/bash
 # Query current session mode
 
-STATE_FILE="/var/lib/kodi-session-state"
-SENTINEL_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/session-select"
+STATE_FILE="/var/lib/session-state"
+TRIGGER_FILE="/var/run/session-switch-request"
 
 # Check system state first
 if [[ -f "$STATE_FILE" ]]; then
-    echo "Current mode: $(cat "$STATE_FILE")"
+    CURRENT=$(cat "$STATE_FILE")
+    echo "Current mode: $CURRENT"
 else
     # Fallback: check what's actually running
     if systemctl is-active --quiet kodi-gbm.service; then
         echo "Current mode: kodi"
     elif systemctl is-active --quiet sddm.service; then
-        echo "Current mode: gamescope"
+        echo "Current mode: gamemode"
     else
         echo "Current mode: unknown"
     fi
 fi
 
-# Show user preference if different
-if [[ -f "$SENTINEL_FILE" ]]; then
-    USER_PREF=$(cat "$SENTINEL_FILE")
-    CURRENT=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
-    if [[ "$USER_PREF" != "$CURRENT" ]]; then
-        echo "User preference: $USER_PREF (switch required)"
+# Check for pending requests
+if [[ -f "$TRIGGER_FILE" ]] && [[ -s "$TRIGGER_FILE" ]]; then
+    REQUEST=$(cat "$TRIGGER_FILE" 2>/dev/null)
+    if [[ -n "$REQUEST" ]]; then
+        echo "Pending switch to: $REQUEST"
     fi
 fi
+
+# Show service status
+echo ""
+echo "Service status:"
+systemctl is-active kodi-gbm.service >/dev/null 2>&1 && echo "  kodi-gbm: active" || echo "  kodi-gbm: inactive"
+systemctl is-active sddm.service >/dev/null 2>&1 && echo "  sddm: active" || echo "  sddm: inactive"
+systemctl is-active session-switch-handler.service >/dev/null 2>&1 && echo "  switch-handler: active" || echo "  switch-handler: inactive"
 EOF
     chmod +x "/usr/bin/current-session-mode"
 
@@ -372,7 +435,7 @@ patch_kodi_standalone_for_gbm() {
         log_info "Backed up original kodi-standalone"
     fi
 
-    # Create GBM-aware version with session management
+    # Create GBM-aware version without switch-to-gamemode calls
     cat > "/usr/bin/kodi-standalone" << 'EOF'
 #!/bin/sh
 #
@@ -386,10 +449,6 @@ libdir="/usr/lib64"
 
 # Kodi GBM binary
 APP="${libdir}/kodi/kodi-gbm"
-
-# Session management
-STATE_FILE="/var/lib/kodi-session-state"
-echo "kodi" > "$STATE_FILE" 2>/dev/null || true
 
 # Start PulseAudio if available
 PULSE_START="$(command -v start-pulseaudio-x11)"
@@ -426,12 +485,7 @@ do
         # Too many crashes, bail out
         LOOP=0
         echo "Kodi crashed 3 times in ${DIFF} seconds. Giving up." >&2
-
-        # Optionally switch back to gaming mode on repeated crashes
-        if command -v switch-to-gamemode >/dev/null 2>&1; then
-            echo "Attempting to switch back to Gaming Mode..."
-            switch-to-gamemode
-        fi
+        # Note: User can manually switch back using request-gamemode
       fi
     fi
   fi
@@ -459,7 +513,8 @@ EOF
     cat > "/usr/lib/tmpfiles.d/kodi-standalone.conf" << 'EOF'
 d /var/lib/kodi 0750 kodi kodi - -
 Z /var/lib/kodi - kodi kodi - -
-f /var/lib/kodi-session-state 0666 root root - -
+f /var/lib/session-state 0644 root root - -
+f /var/run/session-switch-request 0666 root root - -
 EOF
 
     # sysusers configuration
@@ -471,15 +526,14 @@ EOF
     # Create kodi user
     systemd-sysusers
 
-    # Add kodi to wheel group for polkit access
-    usermod -a -G wheel kodi 2>/dev/null || true
-
+    # Add kodi to necessary groups
+    usermod -a -G audio,video,render,input,optical kodi 2>/dev/null || true
 
     # Remove password expiration
     chage -E -1 kodi
     chage -M -1 kodi
 
-    # Enhanced kodi-gbm.service with better session management
+    # Simplified kodi-gbm.service
     cat > "/usr/lib/systemd/system/kodi-gbm.service" << 'EOF'
 [Unit]
 Description=Kodi standalone (GBM/HDR)
@@ -495,10 +549,8 @@ PAMName=login
 TTYPath=/dev/tty1
 
 ExecStartPre=/usr/bin/chvt 1
-
 ExecStart=/usr/bin/kodi-standalone
 ExecStop=-/usr/bin/killall --exact kodi-gbm
-ExecStopPost=-/usr/bin/switch-to-gamemode --elevated-from-kodi
 
 # Environment
 EnvironmentFile=-/etc/conf.d/kodi-standalone
@@ -529,19 +581,24 @@ EOF
 
 # Main execution
 main() {
-    log_subsection "Enhanced Service Configuration"
+    log_subsection "Session Management Service Configuration"
 
     create_polkit_rule
-    install_switch_to_kodi_scripts
-    install_switch_to_gamemode_scripts
+    install_session_switch_handler
+    install_session_request_scripts
     create_desktop_entries
     install_session_query_script
     patch_kodi_standalone_for_gbm
     install_kodi_gbm_service
 
-    log_success "All services configured with improved session management"
-    log_info "Use 'current-session-mode' to check active session"
-    log_info "Use 'switch-to-kodi' or 'switch-to-gamemode' to change modes"
+    log_success "Session management configured with file-watch handler"
+    log_info "Usage:"
+    log_info "  - Check status: current-session-mode"
+    log_info "  - Switch to Kodi: request-kodi"
+    log_info "  - Switch to Gaming: request-gamemode"
+    log_info "  - From Kodi UI: run kodi-request-gamemode"
+    log_info ""
+    log_info "The session-switch-handler service will manage all transitions"
 }
 
 main "$@"
