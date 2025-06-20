@@ -87,27 +87,41 @@ chmod 644 "$STATE_FILE"
 
 log_info "Session switch handler started"
 
-# Function to force display wake
+# Function to force display wake using different methods
 wake_display() {
     log_info "Waking display..."
     
-    # Method 1: Force DPMS on for all connected displays
-    for dpms_file in /sys/class/drm/card*/*/dpms; do
-        if [[ -f "$dpms_file" ]]; then
-            echo "On" > "$dpms_file" 2>/dev/null || true
-        fi
-    done
-    
-    # Method 2: Use vbetool if available (fallback)
-    if command -v vbetool &>/dev/null; then
-        vbetool dpms on 2>/dev/null || true
+    # Method 1: Use ddcutil if available (controls monitor directly)
+    if command -v ddcutil &>/dev/null; then
+        ddcutil dpms on 2>/dev/null || true
     fi
     
-    # Method 3: Force a VT switch to wake the display
+    # Method 2: Use xset if X is somehow available
+    if command -v xset &>/dev/null; then
+        DISPLAY=:0 xset dpms force on 2>/dev/null || true
+    fi
+    
+    # Method 3: Force VT switches to wake display
     local current_vt=$(fgconsole 2>/dev/null || echo "1")
-    chvt 7 2>/dev/null || true
-    sleep 0.1
-    chvt "$current_vt" 2>/dev/null || true
+    
+    # Switch to a different VT and back
+    if [[ "$current_vt" == "1" ]]; then
+        chvt 2 2>/dev/null || true
+        sleep 0.2
+        chvt 1 2>/dev/null || true
+    else
+        chvt 1 2>/dev/null || true
+        sleep 0.2
+        chvt "$current_vt" 2>/dev/null || true
+    fi
+    
+    # Method 4: Try to trigger a mode set via DRM
+    # This often forces the display to wake up
+    if command -v kmscon &>/dev/null; then
+        kmscon --vt 1 --seats seat0 --no-switchvt &
+        sleep 0.5
+        pkill kmscon 2>/dev/null || true
+    fi
 }
 
 # Function to clean up Kodi processes
@@ -137,13 +151,34 @@ ensure_drm_ready() {
     
     # Wait for DRM device to be accessible
     local count=0
-    while [ ! -r /dev/dri/card0 ] && [ $count -lt 10 ]; do
+    while [ ! -e /dev/dri/card0 ] && [ $count -lt 20 ]; do
         sleep 0.2
         ((count++))
     done
     
+    if [ ! -e /dev/dri/card0 ]; then
+        log_error "DRM device not found after waiting"
+        return 1
+    fi
+    
     # Give DRM a moment to settle
-    sleep 0.5
+    sleep 1
+}
+
+# Function to force display detection
+force_display_detection() {
+    log_info "Forcing display detection..."
+    
+    # Try to force HDMI hotplug detection
+    if [ -f /sys/class/drm/card0-HDMI-A-1/status ]; then
+        # Read current status to trigger detection
+        cat /sys/class/drm/card0-HDMI-A-1/status >/dev/null 2>&1 || true
+    fi
+    
+    # If modetest is available, use it to force detection
+    if command -v modetest &>/dev/null; then
+        timeout 2 modetest -M amdgpu 2>/dev/null || true
+    fi
 }
 
 # Function to switch to Kodi
@@ -151,7 +186,7 @@ switch_to_kodi() {
     log_info "Switching to Kodi HDR mode..."
     
     # Check if already in Kodi mode
-    local current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
+    current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
     if [[ "$current_state" == "kodi" ]] && systemctl is-active --quiet kodi-gbm.service; then
         log_info "Already in Kodi mode"
         return 0
@@ -188,9 +223,12 @@ switch_to_kodi() {
     # Ensure DRM is ready
     ensure_drm_ready
     
+    # Force display detection
+    force_display_detection
+    
     # Ensure we're on TTY1
     chvt 1 2>/dev/null || true
-    sleep 0.2
+    sleep 0.5
     
     # Wake the display BEFORE starting Kodi
     wake_display
@@ -201,10 +239,13 @@ switch_to_kodi() {
         echo "kodi" > "$STATE_FILE"
         
         # Give Kodi a moment to initialize
-        sleep 1
+        sleep 2
         
         # Wake display again after Kodi starts
         wake_display
+        
+        # One more display detection attempt
+        force_display_detection
         
         log_info "Successfully switched to Kodi"
         return 0
@@ -219,7 +260,7 @@ switch_to_gamemode() {
     log_info "Switching to Gaming mode..."
     
     # Check if already in gaming mode
-    local current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
+    current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
     if [[ "$current_state" == "gamemode" ]] && systemctl is-active --quiet sddm.service; then
         log_info "Already in Gaming mode"
         return 0
@@ -306,7 +347,8 @@ while true; do
     fi
     
     # Health check - ensure state file matches reality
-    local current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
+    # FIX: Don't use 'local' outside of a function
+    current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
     if [[ "$current_state" == "kodi" ]] && ! systemctl is-active --quiet kodi-gbm.service; then
         log_info "State mismatch detected: state=kodi but service not running"
         echo "unknown" > "$STATE_FILE"
