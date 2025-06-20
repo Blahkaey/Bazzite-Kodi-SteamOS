@@ -37,6 +37,7 @@ install_session_switch_handler() {
     # Create the handler daemon
     cat > "/usr/bin/session-switch-handler" << 'EOF'
 #!/bin/bash
+# /usr/bin/session-switch-handler
 #
 # Session Switch Handler Daemon
 # Watches for session switch requests and handles transitions cleanly
@@ -86,20 +87,43 @@ chmod 644 "$STATE_FILE"
 
 log_info "Session switch handler started"
 
+# Function to force display wake
+wake_display() {
+    log_info "Waking display..."
+    
+    # Method 1: Force DPMS on for all connected displays
+    for dpms_file in /sys/class/drm/card*/*/dpms; do
+        if [[ -f "$dpms_file" ]]; then
+            echo "On" > "$dpms_file" 2>/dev/null || true
+        fi
+    done
+    
+    # Method 2: Use vbetool if available (fallback)
+    if command -v vbetool &>/dev/null; then
+        vbetool dpms on 2>/dev/null || true
+    fi
+    
+    # Method 3: Force a VT switch to wake the display
+    local current_vt=$(fgconsole 2>/dev/null || echo "1")
+    chvt 7 2>/dev/null || true
+    sleep 0.1
+    chvt "$current_vt" 2>/dev/null || true
+}
+
 # Function to clean up Kodi processes
 cleanup_kodi() {
     log_info "Cleaning up Kodi processes..."
-
+    
     # First try graceful termination
     pkill -TERM -f "kodi" 2>/dev/null || true
-
+    
     # Give processes time to exit cleanly
     local count=0
     while pgrep -f "kodi" >/dev/null && [ $count -lt 10 ]; do
         sleep 0.5
         ((count++))
     done
-
+    
     # Force kill if still running
     if pgrep -f "kodi" >/dev/null; then
         log_info "Force killing remaining Kodi processes..."
@@ -107,24 +131,39 @@ cleanup_kodi() {
     fi
 }
 
+# Function to ensure DRM is ready
+ensure_drm_ready() {
+    log_info "Ensuring DRM is ready..."
+    
+    # Wait for DRM device to be accessible
+    local count=0
+    while [ ! -r /dev/dri/card0 ] && [ $count -lt 10 ]; do
+        sleep 0.2
+        ((count++))
+    done
+    
+    # Give DRM a moment to settle
+    sleep 0.5
+}
+
 # Function to switch to Kodi
 switch_to_kodi() {
     log_info "Switching to Kodi HDR mode..."
-
+    
     # Check if already in Kodi mode
-    current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
+    local current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
     if [[ "$current_state" == "kodi" ]] && systemctl is-active --quiet kodi-gbm.service; then
         log_info "Already in Kodi mode"
         return 0
     fi
-
+    
     # Update SDDM configuration for next boot
     mkdir -p "$(dirname "$SDDM_CONF")"
     {
         echo "[Autologin]"
         echo "Session=kodi-gbm-session.desktop"
     } > "$SDDM_CONF"
-
+    
     # Stop display manager if running
     if systemctl is-active --quiet sddm.service; then
         log_info "Stopping SDDM..."
@@ -132,22 +171,41 @@ switch_to_kodi() {
             log_error "Failed to stop SDDM"
             return 1
         }
-
+        
         # Wait for gamescope to fully stop
         sleep 3
     fi
-
+    
     # Clean up any gaming processes
     pkill -f "steam" 2>/dev/null || true
     pkill -f "gamescope" 2>/dev/null || true
-
+    
+    # Clean up zombie processes
+    log_info "Cleaning up zombie processes..."
+    pkill -9 -f "SteamGridDB" 2>/dev/null || true
+    pkill -9 -f "Kodi Launcher" 2>/dev/null || true
+    
+    # Ensure DRM is ready
+    ensure_drm_ready
+    
     # Ensure we're on TTY1
     chvt 1 2>/dev/null || true
-
+    sleep 0.2
+    
+    # Wake the display BEFORE starting Kodi
+    wake_display
+    
     # Start Kodi
     log_info "Starting Kodi service..."
     if systemctl start kodi-gbm.service; then
         echo "kodi" > "$STATE_FILE"
+        
+        # Give Kodi a moment to initialize
+        sleep 1
+        
+        # Wake display again after Kodi starts
+        wake_display
+        
         log_info "Successfully switched to Kodi"
         return 0
     else
@@ -159,39 +217,45 @@ switch_to_kodi() {
 # Function to switch to gaming mode
 switch_to_gamemode() {
     log_info "Switching to Gaming mode..."
-
+    
     # Check if already in gaming mode
-    current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
+    local current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
     if [[ "$current_state" == "gamemode" ]] && systemctl is-active --quiet sddm.service; then
         log_info "Already in Gaming mode"
         return 0
     fi
-
+    
     # Update SDDM configuration
     mkdir -p "$(dirname "$SDDM_CONF")"
     {
         echo "[Autologin]"
         echo "Session=gamescope-session.desktop"
     } > "$SDDM_CONF"
-
+    
     # Stop Kodi if running
     if systemctl is-active --quiet kodi-gbm.service; then
         log_info "Stopping Kodi service..."
         systemctl stop kodi-gbm.service || true
-
+        
         # Wait a moment for clean shutdown
         sleep 2
-
+        
         # Force cleanup any remaining processes
         cleanup_kodi
     fi
-
+    
+    # Ensure DRM is ready
+    ensure_drm_ready
+    
     # Ensure we're on TTY1
     chvt 1 2>/dev/null || true
-
+    
+    # Wake display before starting SDDM
+    wake_display
+    
     # Reset any failed services
     systemctl reset-failed sddm.service 2>/dev/null || true
-
+    
     # Start SDDM
     log_info "Starting SDDM..."
     if systemctl start sddm.service; then
@@ -216,11 +280,11 @@ while true; do
             log_info "Another switch operation in progress, skipping..."
             continue
         fi
-
+        
         # Read and clear the request
         REQUEST=$(cat "$TRIGGER_FILE" 2>/dev/null | tr -d '\n' | tr -d ' ')
         echo -n "" > "$TRIGGER_FILE"
-
+        
         # Process the request
         case "$REQUEST" in
             "kodi")
@@ -236,13 +300,13 @@ while true; do
                 log_error "Unknown request: $REQUEST"
                 ;;
         esac
-
+        
         # Release lock
         flock -u 200
     fi
-
+    
     # Health check - ensure state file matches reality
-    current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
+    local current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
     if [[ "$current_state" == "kodi" ]] && ! systemctl is-active --quiet kodi-gbm.service; then
         log_info "State mismatch detected: state=kodi but service not running"
         echo "unknown" > "$STATE_FILE"
