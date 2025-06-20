@@ -546,10 +546,8 @@ main() {
     install_session_switch_handler
     install_session_request_scripts
     create_desktop_entries
-    install_session_query_script
     patch_kodi_standalone_for_gbm
     install_kodi_gbm_service
-    testing
 
     log_success "Session management configured with file-watch handler"
     log_info "Usage:"
