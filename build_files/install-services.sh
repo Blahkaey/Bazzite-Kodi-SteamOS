@@ -943,7 +943,36 @@ EOF
     chmod +x "/usr/bin/diagnose-session-switch"
 
 
+    cat > "/usr/bin/force-display-wake" << 'EOF'
+#!/bin/bash
+# /usr/bin/force-display-wake
+# Manual display wake utility for debugging
 
+echo "Attempting to wake display..."
+
+# Try VT switching
+current_vt=$(fgconsole 2>/dev/null || echo "1")
+echo "Current VT: $current_vt"
+
+echo "Switching VTs..."
+chvt 7 2>/dev/null || true
+sleep 0.5
+chvt 1 2>/dev/null || true
+
+# Try to read HDMI status
+if [ -f /sys/class/drm/card0-HDMI-A-1/status ]; then
+    echo "HDMI status: $(cat /sys/class/drm/card0-HDMI-A-1/status)"
+fi
+
+# If Kodi is running, send it a refresh signal
+if pgrep -x "kodi-gbm" >/dev/null; then
+    echo "Sending SIGUSR1 to Kodi..."
+    pkill -USR1 -x "kodi-gbm" || true
+fi
+
+echo "Display wake attempted"
+EOF
+    chmod +x "/usr/bin/force-display-wake"
 
     cat > "/usr/bin/monitor-session-switch" << 'EOF'
 #!/bin/bash
