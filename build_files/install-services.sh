@@ -579,6 +579,302 @@ EOF
     log_success "kodi-gbm service installed"
 }
 
+
+testing() {
+
+        cat > "/usr/bin/diagnose-session-switch" << 'EOF'
+#!/bin/bash
+# /usr/bin/diagnose-session-switch
+# Comprehensive diagnostic tool for session switching issues
+
+set -euo pipefail
+
+# Color codes for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+# Diagnostic output file
+DIAG_FILE="/tmp/session-switch-diagnostic-$(date +%Y%m%d-%H%M%S).log"
+
+# Functions
+log_section() {
+    echo -e "\n${BLUE}==== $1 ====${NC}" | tee -a "$DIAG_FILE"
+}
+
+log_info() {
+    echo -e "${GREEN}[INFO]${NC} $1" | tee -a "$DIAG_FILE"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[WARN]${NC} $1" | tee -a "$DIAG_FILE"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1" | tee -a "$DIAG_FILE"
+}
+
+# Start diagnostic
+echo "Session Switch Diagnostic Tool" | tee "$DIAG_FILE"
+echo "=============================" | tee -a "$DIAG_FILE"
+echo "Date: $(date)" | tee -a "$DIAG_FILE"
+echo "Diagnostic output will be saved to: $DIAG_FILE"
+
+# Basic system info
+log_section "System Information"
+uname -a | tee -a "$DIAG_FILE"
+echo "Current user: $(whoami)" | tee -a "$DIAG_FILE"
+echo "Current TTY: $(tty 2>/dev/null || echo 'unknown')" | tee -a "$DIAG_FILE"
+
+# Session state
+log_section "Session State"
+if [[ -f /var/lib/session-state ]]; then
+    echo "Session state file: $(cat /var/lib/session-state)" | tee -a "$DIAG_FILE"
+else
+    log_warning "Session state file not found"
+fi
+
+if [[ -f /var/run/session-switch-request ]]; then
+    REQUEST=$(cat /var/run/session-switch-request 2>/dev/null || echo "empty")
+    echo "Pending request: '$REQUEST'" | tee -a "$DIAG_FILE"
+else
+    echo "No pending request" | tee -a "$DIAG_FILE"
+fi
+
+# Service status
+log_section "Service Status"
+for service in session-switch-handler kodi-gbm sddm gamescope-session; do
+    STATUS=$(systemctl is-active "$service" 2>/dev/null || echo "unknown")
+    if [[ "$STATUS" == "active" ]]; then
+        log_info "$service: $STATUS"
+    else
+        log_warning "$service: $STATUS"
+    fi
+
+    # Get last 5 log lines for failed services
+    if [[ "$STATUS" == "failed" ]]; then
+        echo "Last logs for $service:" | tee -a "$DIAG_FILE"
+        journalctl -u "$service" -n 5 --no-pager 2>/dev/null | tee -a "$DIAG_FILE" || true
+    fi
+done
+
+# Process check
+log_section "Running Processes"
+echo "Kodi processes:" | tee -a "$DIAG_FILE"
+pgrep -la kodi 2>/dev/null | tee -a "$DIAG_FILE" || echo "  None found" | tee -a "$DIAG_FILE"
+
+echo -e "\nGamescope processes:" | tee -a "$DIAG_FILE"
+pgrep -la gamescope 2>/dev/null | tee -a "$DIAG_FILE" || echo "  None found" | tee -a "$DIAG_FILE"
+
+echo -e "\nSteam processes:" | tee -a "$DIAG_FILE"
+pgrep -la steam 2>/dev/null | head -5 | tee -a "$DIAG_FILE" || echo "  None found" | tee -a "$DIAG_FILE"
+
+echo -e "\nSDDM processes:" | tee -a "$DIAG_FILE"
+pgrep -la sddm 2>/dev/null | tee -a "$DIAG_FILE" || echo "  None found" | tee -a "$DIAG_FILE"
+
+# TTY and VT information
+log_section "TTY/VT State"
+echo "Active VT: $(cat /sys/class/tty/tty0/active 2>/dev/null || echo 'unknown')" | tee -a "$DIAG_FILE"
+echo "TTY1 processes:" | tee -a "$DIAG_FILE"
+ps aux | grep -E "tty1|TTY1" | grep -v grep | tee -a "$DIAG_FILE" || echo "  None found" | tee -a "$DIAG_FILE"
+
+# Check who owns TTY1
+echo -e "\nTTY1 ownership:" | tee -a "$DIAG_FILE"
+ls -la /dev/tty1 2>/dev/null | tee -a "$DIAG_FILE" || echo "  Cannot check" | tee -a "$DIAG_FILE"
+
+# GPU/DRM information
+log_section "GPU/DRM State"
+echo "DRM devices:" | tee -a "$DIAG_FILE"
+ls -la /dev/dri/ 2>/dev/null | tee -a "$DIAG_FILE" || echo "  Cannot list" | tee -a "$DIAG_FILE"
+
+echo -e "\nDRM master status:" | tee -a "$DIAG_FILE"
+for card in /dev/dri/card*; do
+    if [[ -e "$card" ]]; then
+        echo "  $card:" | tee -a "$DIAG_FILE"
+        # Check if any process has it open
+        lsof "$card" 2>/dev/null | head -5 | tee -a "$DIAG_FILE" || echo "    No processes found" | tee -a "$DIAG_FILE"
+    fi
+done
+
+echo -e "\nGPU driver:" | tee -a "$DIAG_FILE"
+lspci -k | grep -A 3 -E "VGA|3D|Display" | tee -a "$DIAG_FILE"
+
+# Display/monitor state
+log_section "Display State"
+echo "Connected displays (via DRM):" | tee -a "$DIAG_FILE"
+for card in /sys/class/drm/card*; do
+    if [[ -d "$card" ]]; then
+        CARD_NAME=$(basename "$card")
+        for connector in "$card"/*-*/status; do
+            if [[ -f "$connector" ]]; then
+                CONN_NAME=$(basename $(dirname "$connector"))
+                STATUS=$(cat "$connector" 2>/dev/null)
+                echo "  $CARD_NAME/$CONN_NAME: $STATUS" | tee -a "$DIAG_FILE"
+            fi
+        done
+    fi
+done
+
+# Check for display power management
+echo -e "\nDisplay power state:" | tee -a "$DIAG_FILE"
+for dpms in /sys/class/drm/card*/*/dpms; do
+    if [[ -f "$dpms" ]]; then
+        CONN=$(basename $(dirname "$dpms"))
+        STATE=$(cat "$dpms" 2>/dev/null || echo "unknown")
+        echo "  $CONN: $STATE" | tee -a "$DIAG_FILE"
+    fi
+done
+
+# Session handler logs
+log_section "Session Handler Logs (last 20 lines)"
+journalctl -u session-switch-handler -n 20 --no-pager 2>/dev/null | tee -a "$DIAG_FILE" || \
+    log_warning "Could not retrieve session handler logs"
+
+# Kodi service logs
+log_section "Kodi Service Logs (last 20 lines)"
+journalctl -u kodi-gbm -n 20 --no-pager 2>/dev/null | tee -a "$DIAG_FILE" || \
+    log_warning "Could not retrieve Kodi logs"
+
+# SDDM logs
+log_section "SDDM Logs (last 10 lines)"
+journalctl -u sddm -n 10 --no-pager 2>/dev/null | tee -a "$DIAG_FILE" || \
+    log_warning "Could not retrieve SDDM logs"
+
+# Check for common issues
+log_section "Common Issues Check"
+
+# Check if kodi user exists and has proper groups
+if id kodi &>/dev/null; then
+    log_info "Kodi user exists"
+    echo "  Groups: $(groups kodi)" | tee -a "$DIAG_FILE"
+else
+    log_error "Kodi user does not exist!"
+fi
+
+# Check if session-switch-handler is enabled
+if systemctl is-enabled session-switch-handler &>/dev/null; then
+    log_info "Session switch handler is enabled"
+else
+    log_error "Session switch handler is not enabled!"
+fi
+
+# Check permissions on key files
+echo -e "\nFile permissions:" | tee -a "$DIAG_FILE"
+ls -la /var/run/session-switch-request 2>/dev/null | tee -a "$DIAG_FILE" || echo "  Trigger file missing" | tee -a "$DIAG_FILE"
+ls -la /var/lib/session-state 2>/dev/null | tee -a "$DIAG_FILE" || echo "  State file missing" | tee -a "$DIAG_FILE"
+
+# Check for zombie processes
+log_section "Zombie/Defunct Processes"
+ZOMBIES=$(ps aux | grep -E "\<defunct\>" | grep -v grep)
+if [[ -n "$ZOMBIES" ]]; then
+    log_warning "Found zombie processes:"
+    echo "$ZOMBIES" | tee -a "$DIAG_FILE"
+else
+    log_info "No zombie processes found"
+fi
+
+# Memory and resource usage
+log_section "Resource Usage"
+echo "Memory usage:" | tee -a "$DIAG_FILE"
+free -h | tee -a "$DIAG_FILE"
+
+echo -e "\nTop 5 CPU consumers:" | tee -a "$DIAG_FILE"
+ps aux --sort=-%cpu | head -6 | tee -a "$DIAG_FILE"
+
+# Attempt to gather timing information
+log_section "Recent Session Switch Attempts"
+echo "Last 10 session-related journal entries:" | tee -a "$DIAG_FILE"
+journalctl -n 50 | grep -E "session-switch|kodi-gbm|sddm|gamescope|Switching to" | tail -10 | tee -a "$DIAG_FILE" || \
+    echo "No recent session switch entries found" | tee -a "$DIAG_FILE"
+
+# Test scenarios
+log_section "Diagnostic Tests"
+
+# Test 1: Can we access TTY1?
+echo -n "Testing TTY1 access: " | tee -a "$DIAG_FILE"
+if echo "test" > /dev/tty1 2>/dev/null; then
+    log_info "SUCCESS - Can write to TTY1"
+else
+    log_warning "FAILED - Cannot write to TTY1"
+fi
+
+# Test 2: Is DRM master available?
+echo -n "Testing DRM card0 access: " | tee -a "$DIAG_FILE"
+if [[ -r /dev/dri/card0 ]]; then
+    log_info "SUCCESS - Can read card0"
+else
+    log_warning "FAILED - Cannot read card0"
+fi
+
+# Summary and recommendations
+log_section "Summary and Recommendations"
+
+# Analyze common failure patterns
+if pgrep gamescope &>/dev/null && ! pgrep kodi &>/dev/null; then
+    log_warning "Gamescope is still running but Kodi is not"
+    echo "  → Gamescope may not be releasing resources properly" | tee -a "$DIAG_FILE"
+fi
+
+if ! systemctl is-active --quiet session-switch-handler; then
+    log_error "Session switch handler is not running!"
+    echo "  → Try: sudo systemctl restart session-switch-handler" | tee -a "$DIAG_FILE"
+fi
+
+ACTIVE_VT=$(cat /sys/class/tty/tty0/active 2>/dev/null)
+if [[ "$ACTIVE_VT" != "tty1" ]]; then
+    log_warning "Not on TTY1 (current: $ACTIVE_VT)"
+    echo "  → TTY switching may be failing" | tee -a "$DIAG_FILE"
+fi
+
+# Final message
+echo -e "\n${GREEN}Diagnostic complete!${NC}"
+echo "Full output saved to: $DIAG_FILE"
+echo -e "\nTo share this diagnostic, run:"
+echo "  cat $DIAG_FILE | nc termbin.com 9999"
+EOF
+    chmod +x "/usr/bin/diagnose-session-switch"
+
+
+
+
+    cat > "/usr/bin/monitor-session-switch" << 'EOF'
+#!/bin/bash
+# /usr/bin/monitor-session-switch
+# Real-time monitoring of session switch process
+
+echo "Monitoring session switch in real-time..."
+echo "Press Ctrl+C to stop"
+echo "================================"
+
+# Monitor multiple sources simultaneously
+tail -f /var/log/messages \
+    <(journalctl -u session-switch-handler -f 2>/dev/null) \
+    <(journalctl -u kodi-gbm -f 2>/dev/null) \
+    <(journalctl -u sddm -f 2>/dev/null) \
+    2>/dev/null | while read line; do
+
+    # Highlight important lines
+    if echo "$line" | grep -qE "ERROR|error|failed|Failed"; then
+        echo -e "\033[0;31m$line\033[0m"  # Red
+    elif echo "$line" | grep -qE "Switching to|Starting|Stopping"; then
+        echo -e "\033[0;34m$line\033[0m"  # Blue
+    elif echo "$line" | grep -qE "Successfully|started|active"; then
+        echo -e "\033[0;32m$line\033[0m"  # Green
+    elif echo "$line" | grep -qE "kodi|gamescope|sddm|session-switch"; then
+        echo -e "\033[1;33m$line\033[0m"  # Yellow
+    else
+        echo "$line"
+    fi
+done
+EOF
+    chmod +x "/usr/bin/monitor-session-switch"
+
+
+}
+
+
 # Main execution
 main() {
     log_subsection "Session Management Service Configuration"
@@ -590,6 +886,11 @@ main() {
     install_session_query_script
     patch_kodi_standalone_for_gbm
     install_kodi_gbm_service
+    testing
+
+
+
+
 
     log_success "Session management configured with file-watch handler"
     log_info "Usage:"
