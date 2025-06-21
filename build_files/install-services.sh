@@ -183,6 +183,57 @@ cleanup_processes() {
     esac
 }
 
+# Function: Find the active HDMI connector
+find_active_hdmi_connector() {
+    local connector
+    for connector in /sys/class/drm/card*-HDMI-*/status; do
+        if [ -f "$connector" ] && [ "$(cat "$connector")" = "connected" ]; then
+            echo "${connector%/status}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Function: Set DRM content type property
+set_drm_content_type() {
+    local content_type=$1
+    local active_connector
+
+    # Find the active HDMI connector
+    if ! active_connector=$(find_active_hdmi_connector); then
+        log_error "No active HDMI connector found"
+        return 1
+    fi
+
+    # Extract card and connector name
+    local drm_device=$(basename "$(dirname "$active_connector")")
+    local card_num=$(echo "$drm_device" | grep -o 'card[0-9]*' | grep -o '[0-9]*')
+    local connector_name=$(echo "$drm_device" | sed 's/card[0-9]*-//')
+
+    log_info "Setting content_type to $content_type on $drm_device"
+
+    # Use drm_mode tool or write directly via sysfs if available
+    # Method 1: Using modetest (if available)
+    if command -v modetest >/dev/null 2>&1; then
+        # Get connector ID
+        local connector_id=$(modetest -c 2>/dev/null | grep -A1 "$connector_name" | grep -o '^[0-9]*' | head -1)
+        if [ -n "$connector_id" ]; then
+            # Set the content type property
+            modetest -w "$connector_id:content type:$content_type" 2>/dev/null || {
+                log_warning "Failed to set content_type via modetest"
+                return 1
+            }
+            log_info "Content type set successfully via modetest"
+            return 0
+        fi
+    fi
+
+    log_warning "No suitable method found to set content_type property"
+    return 1
+}
+
+
 # Function: Switch to Kodi with retry logic
 switch_to_kodi() {
     log_info "Switching to Kodi HDR mode..."
@@ -216,7 +267,11 @@ switch_to_kodi() {
     
     # Cleanup gaming processes
     cleanup_processes "gaming"
-    
+
+    log_info "Disabling ALLM (setting content type to Cinema)"
+    # Set content type to CINEMA (3) to disable ALLM
+    set_drm_content_type 3
+
     # Ensure on TTY1
     chvt 1 2>/dev/null || true
     
