@@ -288,7 +288,7 @@ switch_to_kodi() {
     local attempts=0
     local max_attempts=2
 
-    set_drm_content_type
+    set_drm_content_type 3
 
     while [ $attempts -lt $max_attempts ]; do
         log_info "Starting Kodi service (attempt $((attempts+1))/$max_attempts)..."
