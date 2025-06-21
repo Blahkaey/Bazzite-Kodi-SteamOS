@@ -37,7 +37,6 @@ install_session_switch_handler() {
     # Create the handler daemon
     cat > "/usr/bin/session-switch-handler" << 'EOF'
 #!/bin/bash
-# /usr/bin/session-switch-handler
 #
 # Session Switch Handler Daemon
 # Watches for session switch requests and handles transitions cleanly
@@ -485,51 +484,6 @@ EOF
     chmod 644 /usr/share/xsessions/*.desktop 2>/dev/null || true
 
     log_success "Desktop entries created"
-}
-
-install_session_query_script() {
-    log_info "Installing session query utility..."
-
-    cat > "/usr/bin/current-session-mode" << 'EOF'
-#!/bin/bash
-# Query current session mode
-
-STATE_FILE="/var/lib/session-state"
-TRIGGER_FILE="/var/run/session-switch-request"
-
-# Check system state first
-if [[ -f "$STATE_FILE" ]]; then
-    CURRENT=$(cat "$STATE_FILE")
-    echo "Current mode: $CURRENT"
-else
-    # Fallback: check what's actually running
-    if systemctl is-active --quiet kodi-gbm.service; then
-        echo "Current mode: kodi"
-    elif systemctl is-active --quiet sddm.service; then
-        echo "Current mode: gamemode"
-    else
-        echo "Current mode: unknown"
-    fi
-fi
-
-# Check for pending requests
-if [[ -f "$TRIGGER_FILE" ]] && [[ -s "$TRIGGER_FILE" ]]; then
-    REQUEST=$(cat "$TRIGGER_FILE" 2>/dev/null)
-    if [[ -n "$REQUEST" ]]; then
-        echo "Pending switch to: $REQUEST"
-    fi
-fi
-
-# Show service status
-echo ""
-echo "Service status:"
-systemctl is-active kodi-gbm.service >/dev/null 2>&1 && echo "  kodi-gbm: active" || echo "  kodi-gbm: inactive"
-systemctl is-active sddm.service >/dev/null 2>&1 && echo "  sddm: active" || echo "  sddm: inactive"
-systemctl is-active session-switch-handler.service >/dev/null 2>&1 && echo "  switch-handler: active" || echo "  switch-handler: inactive"
-EOF
-    chmod +x "/usr/bin/current-session-mode"
-
-    log_success "Session query utility installed"
 }
 
 patch_kodi_standalone_for_gbm() {
@@ -1018,18 +972,12 @@ main() {
     install_session_switch_handler
     install_session_request_scripts
     create_desktop_entries
-    install_session_query_script
     patch_kodi_standalone_for_gbm
     install_kodi_gbm_service
-    testing
-
-
-
 
 
     log_success "Session management configured with file-watch handler"
     log_info "Usage:"
-    log_info "  - Check status: current-session-mode"
     log_info "  - Switch to Kodi: request-kodi"
     log_info "  - Switch to Gaming: request-gamemode"
     log_info "  - From Kodi UI: run kodi-request-gamemode"
