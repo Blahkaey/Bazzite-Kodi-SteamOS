@@ -272,7 +272,7 @@ switch_to_kodi() {
     fi
     
     # Cleanup gaming processes
-    cleanup_processes "gaming"
+    # cleanup_processes "gaming"
 
     log_info "Disabling ALLM (setting content type to Cinema)"
     # Set content type to CINEMA (3) to disable ALLM
