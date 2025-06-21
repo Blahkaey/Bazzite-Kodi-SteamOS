@@ -117,75 +117,6 @@ simple_wake() {
     chvt 1 2>/dev/null || true
 }
 
-find_active_hdmi_connector() {
-    local connector
-    for connector in /sys/class/drm/card*-HDMI-*/status; do
-        if [ -f "$connector" ] && [ "$(cat "$connector")" = "connected" ]; then
-            echo "${connector%/status}"
-            return 0
-        fi
-    done
-    return 1
-}
-
-# Function to set DRM content type property
-set_drm_content_type() {
-    local content_type=$1
-    local active_connector
-
-    # Find the active HDMI connector
-    if ! active_connector=$(find_active_hdmi_connector); then
-        log_error "No active HDMI connector found"
-        return 1
-    fi
-
-    # Extract card and connector name
-    local drm_device=$(basename "$(dirname "$active_connector")")
-    local card_num=$(echo "$drm_device" | grep -o 'card[0-9]*' | grep -o '[0-9]*')
-    local connector_name=$(echo "$drm_device" | sed 's/card[0-9]*-//')
-
-    log_info "Setting content_type to $content_type on $drm_device"
-
-    # Use drm_mode tool or write directly via sysfs if available
-    # Method 1: Using modetest (if available)
-    if command -v modetest >/dev/null 2>&1; then
-        # Get connector ID
-        local connector_id=$(modetest -c 2>/dev/null | grep -A1 "$connector_name" | grep -o '^[0-9]*' | head -1)
-        if [ -n "$connector_id" ]; then
-            # Set the content type property
-            modetest -w "$connector_id:content type:$content_type" 2>/dev/null || {
-                log_warning "Failed to set content_type via modetest"
-                return 1
-            }
-            log_info "Content type set successfully via modetest"
-            return 0
-        fi
-    fi
-
-    # Method 2: Using drm_info to find property ID and then write via sysfs
-    # This is a fallback method - you might need to install drm_info
-    if command -v drm_info >/dev/null 2>&1; then
-        local prop_info=$(drm_info -j 2>/dev/null | jq -r ".cards[\"$card_num\"].connectors[] | select(.name == \"$connector_name\") | .properties | to_entries[] | select(.key == \"content type\")")
-        if [ -n "$prop_info" ]; then
-            log_info "Found content type property via drm_info"
-            # Note: Direct sysfs write might not be available for all properties
-        fi
-    fi
-
-    # Method 3: Using libdrm's proptest utility (if available)
-    if command -v proptest >/dev/null 2>&1; then
-        proptest "$card_num" connector "$connector_id" "content type" "$content_type" 2>/dev/null || {
-            log_warning "Failed to set content_type via proptest"
-            return 1
-        }
-        log_info "Content type set successfully via proptest"
-        return 0
-    fi
-
-    log_warning "No suitable method found to set content_type property"
-    return 1
-}
-
 switch_to_kodi() {
     log_info "Switching to Kodi..."
 
@@ -227,8 +158,6 @@ switch_to_kodi() {
     log_info "TEST: Switch to TTY1"
     chvt 1 2>/dev/null || true
     sleep 0.5
-
-    set_drm_content_type 3
 
     # TEST: Wake before Kodi
     simple_wake
