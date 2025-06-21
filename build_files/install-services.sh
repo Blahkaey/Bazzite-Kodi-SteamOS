@@ -201,7 +201,7 @@ find_active_hdmi_connector() {
 }
 
 # Function: Set DRM content type property
-set_drm_content_type_dynamic() {
+set_drm_content_type() {
     local content_type=$1
     local active_connector
 
