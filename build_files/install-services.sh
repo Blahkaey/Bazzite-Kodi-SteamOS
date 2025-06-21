@@ -57,6 +57,11 @@ log_info() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] INFO: $@"
 }
 
+log_warning() {
+    logger -t "$LOG_TAG" -p warning "$@"
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] WARNING: $@" >&2
+}
+
 log_error() {
     logger -t "$LOG_TAG" -p err "$@"
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] ERROR: $@" >&2
