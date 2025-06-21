@@ -90,26 +90,11 @@ jobs:
           flavor: |
             latest=false
           tags: |
-            # Branch-specific latest tag (latest, dev, feature-name)
+
+            # Only create 2 tags instead of 4
             type=raw,value=${{ env.LATEST_TAG }}
-
-            # Date tag with branch prefix (20240617, dev-20240617, feature-20240617)
-            type=raw,value=${{ env.BUILD_PREFIX }}${{ steps.date.outputs.dateonly }}
-
-            # Build number with branch prefix (build-150, dev-build-150, feature-build-150)
             type=raw,value=${{ env.BUILD_PREFIX }}build-${{ github.run_number }}
-
-            # SHA tag for debugging (sha-abc1234)
             type=sha,prefix=sha-,format=short
-
-            # PR tags (pr-23)
-            type=ref,event=pr
-
-            # Custom tag if provided via workflow_dispatch
-            type=raw,value=${{ inputs.custom_tag }},enable=${{ inputs.custom_tag != '' }}
-
-            # Stable tag ONLY for main branch scheduled builds
-            type=raw,value=stable,enable=${{ github.event_name == 'schedule' && github.ref_name == 'main' }}
 
           labels: |
             io.artifacthub.package.readme-url=https://raw.githubusercontent.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/refs/heads/main/README.md
