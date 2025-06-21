@@ -37,8 +37,8 @@ install_session_switch_handler() {
     cat > "/usr/bin/session-switch-handler" << 'EOF'
 #!/bin/bash
 #
-# Optimized Session Switch Handler Daemon
-# Fast, reliable switching between Kodi and Gaming mode
+# Session Switch Handler Daemon
+# Watches for session switch requests and handles transitions
 #
 
 set -euo pipefail
@@ -151,7 +151,7 @@ wake_display() {
     fi
 }
 
-# Function: Aggressive process cleanup
+# Function: Process cleanup
 cleanup_processes() {
     local target="$1"
     
@@ -159,7 +159,7 @@ cleanup_processes() {
         kodi)
             # Try graceful termination
             pkill -TERM -f "kodi" 2>/dev/null || true
-            # Short grace period (200ms)
+            # Short grace period
             sleep 0.2
             # Force kill if still running
             if pgrep -f "kodi" >/dev/null; then
@@ -305,10 +305,10 @@ switch_to_gamemode() {
     cleanup_processes "kodi"
     
     # Ensure on TTY1
-    chvt 1 2>/dev/null || true
+    #chvt 1 2>/dev/null || true
     
     # Wake display
-    wake_display
+    #wake_display
     
     # Try to start SDDM (with retry)
     local attempts=0
@@ -399,7 +399,6 @@ done
 EOF
     chmod +x "/usr/bin/session-switch-handler"
 
-    # Create simplified systemd service
     cat > "/usr/lib/systemd/system/session-switch-handler.service" << 'EOF'
 [Unit]
 Description=Optimized Session Switch Handler
@@ -427,7 +426,7 @@ EOF
 
     systemctl enable session-switch-handler.service
 
-    log_success "Optimized session switch handler installed"
+    log_success "Session switch handler installed"
 }
 
 install_session_request_scripts() {
