@@ -277,7 +277,6 @@ switch_to_kodi() {
     log_info "Disabling ALLM (setting content type to Cinema)"
     # Set content type to CINEMA (3) to disable ALLM
     set_drm_content_type 3
-    sleep 0.1
 
     # Ensure on TTY1
     chvt 1 2>/dev/null || true
@@ -288,7 +287,9 @@ switch_to_kodi() {
     # Try to start Kodi (with retry)
     local attempts=0
     local max_attempts=2
-    
+
+    set_drm_content_type
+
     while [ $attempts -lt $max_attempts ]; do
         log_info "Starting Kodi service (attempt $((attempts+1))/$max_attempts)..."
         
