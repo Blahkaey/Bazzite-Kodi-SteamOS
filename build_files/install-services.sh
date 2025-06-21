@@ -53,17 +53,14 @@ LOG_TAG="session-switch-handler"
 
 # Logging functions
 log_info() {
-    logger -t "$LOG_TAG" -p info "$@"
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] INFO: $@"
 }
 
 log_warning() {
-    logger -t "$LOG_TAG" -p warning "$@"
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] WARNING: $@" >&2
 }
 
 log_error() {
-    logger -t "$LOG_TAG" -p err "$@"
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] ERROR: $@" >&2
 }
 
@@ -206,19 +203,14 @@ set_drm_content_type() {
     local active_connector
 
     # Find the active HDMI connector
-    log_info "Finding the active connector"
     if ! active_connector=$(find_active_hdmi_connector); then
         log_error "No active HDMI connector found"
         return 1
     fi
 
-    log_info "Active connector path: $active_connector"
-
-    # Extract connector name - fix the extraction
-    # If active_connector is /sys/class/drm/card0-HDMI-A-1
-    # We want just HDMI-A-1
+    # Extract connector name
     local connector_name=$(basename "$active_connector" | sed 's/card[0-9]*-//')
-
+    
     log_info "Setting content_type to $content_type on connector $connector_name"
 
     if command -v modetest >/dev/null 2>&1; then
@@ -234,30 +226,12 @@ set_drm_content_type() {
             # Set the property using the property name
             if modetest -w "${connector_id}:content type:${content_type}" 2>/dev/null; then
                 log_info "Content type set successfully to $content_type"
-
-                # Verify the change
-                sleep 0.5  # Give it a moment to apply
-                local new_value=$(modetest -c 2>/dev/null | grep -A40 "^${connector_id}.*connected" | grep -A2 "content type:" | grep "value:" | awk '{print $2}')
-                if [ "$new_value" = "$content_type" ]; then
-                    log_info "Verified: content type is now $new_value"
-                    case $content_type in
-                        0) log_info "ALLM disabled: No Data" ;;
-                        1) log_info "ALLM disabled: Graphics" ;;
-                        2) log_info "ALLM disabled: Photo" ;;
-                        3) log_info "ALLM disabled: Cinema" ;;
-                        4) log_info "ALLM enabled: Game" ;;
-                    esac
-                else
-                    log_warning "Verification: current value is $new_value (expected $content_type)"
-                fi
                 return 0
             else
                 log_error "Failed to set content_type via modetest"
             fi
         else
             log_error "Could not find connector ID for $connector_name"
-            log_info "Available connectors:"
-            echo "$modetest_output" | grep -E "^[0-9]+.*(connected|disconnected)" | sed 's/^/  /'
         fi
     else
         log_error "modetest not found"
@@ -265,7 +239,6 @@ set_drm_content_type() {
 
     return 1
 }
-
 
 # Function: Switch to Kodi with retry logic
 switch_to_kodi() {
@@ -304,6 +277,7 @@ switch_to_kodi() {
     log_info "Disabling ALLM (setting content type to Cinema)"
     # Set content type to CINEMA (3) to disable ALLM
     set_drm_content_type 3
+    sleep 0.1
 
     # Ensure on TTY1
     chvt 1 2>/dev/null || true
