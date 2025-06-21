@@ -3,6 +3,15 @@ set -euo pipefail
 
 source "/ctx/utility.sh"
 
+# Configuration via environment variables (can be set in systemd service)
+export SKIP_DISPLAY_WAKE=${SKIP_DISPLAY_WAKE:-0}
+export SKIP_VT_SWITCH=${SKIP_VT_SWITCH:-0}
+export SKIP_PROCESS_CLEANUP=${SKIP_PROCESS_CLEANUP:-0}
+export SKIP_DRM_WAIT=${SKIP_DRM_WAIT:-0}
+export REDUCE_DELAYS=${REDUCE_DELAYS:-0}
+export WAKE_METHOD=${WAKE_METHOD:-ddcutil}  # ddcutil, vt, or none
+export ENABLE_HEALTH_CHECK=${ENABLE_HEALTH_CHECK:-0}
+
 create_polkit_rule() {
     log_info "Creating polkit rules for service management..."
 
@@ -34,12 +43,12 @@ EOF
 install_session_switch_handler() {
     log_info "Installing session switch handler daemon..."
 
-    # Create the handler daemon
+    # Create the optimized handler daemon
     cat > "/usr/bin/session-switch-handler" << 'EOF'
 #!/bin/bash
 #
-# Session Switch Handler Daemon
-# Watches for session switch requests and handles transitions cleanly
+# Optimized Session Switch Handler Daemon
+# Watches for session switch requests and handles transitions
 #
 
 set -euo pipefail
@@ -50,6 +59,32 @@ STATE_FILE="/var/lib/session-state"
 LOCK_FILE="/var/run/session-switch.lock"
 SDDM_CONF="/etc/sddm.conf.d/zz-steamos-autologin.conf"
 LOG_TAG="session-switch-handler"
+
+# Import environment variables for configuration
+SKIP_DISPLAY_WAKE=${SKIP_DISPLAY_WAKE:-0}
+SKIP_VT_SWITCH=${SKIP_VT_SWITCH:-0}
+SKIP_PROCESS_CLEANUP=${SKIP_PROCESS_CLEANUP:-0}
+SKIP_DRM_WAIT=${SKIP_DRM_WAIT:-0}
+REDUCE_DELAYS=${REDUCE_DELAYS:-0}
+WAKE_METHOD=${WAKE_METHOD:-ddcutil}
+ENABLE_HEALTH_CHECK=${ENABLE_HEALTH_CHECK:-0}
+
+# Delay configuration
+if [[ $REDUCE_DELAYS -eq 1 ]]; then
+    DELAY_SDDM_STOP=0.5
+    DELAY_KODI_START=0.5
+    DELAY_KODI_STOP=0.5
+    DELAY_DRM_SETTLE=0.2
+    DELAY_VT_SWITCH=0.1
+    DELAY_PROCESS_KILL=0.2
+else
+    DELAY_SDDM_STOP=3
+    DELAY_KODI_START=2
+    DELAY_KODI_STOP=2
+    DELAY_DRM_SETTLE=1
+    DELAY_VT_SWITCH=0.5
+    DELAY_PROCESS_KILL=0.5
+fi
 
 # Logging functions
 log_info() {
@@ -73,7 +108,6 @@ echo -n "" > "$TRIGGER_FILE"
 
 # Initialize state file
 if [[ ! -f "$STATE_FILE" ]]; then
-    # Try to detect current state
     if systemctl is-active --quiet kodi-gbm.service; then
         echo "kodi" > "$STATE_FILE"
     elif systemctl is-active --quiet sddm.service; then
@@ -84,120 +118,112 @@ if [[ ! -f "$STATE_FILE" ]]; then
 fi
 chmod 644 "$STATE_FILE"
 
-log_info "Session switch handler started"
+log_info "Session switch handler started (REDUCE_DELAYS=$REDUCE_DELAYS, WAKE_METHOD=$WAKE_METHOD)"
 
-# Function to force display wake using different methods
+# Optimized display wake function
 wake_display() {
-    log_info "Waking display..."
-    
-    # Method 1: Use ddcutil if available (controls monitor directly)
-    if command -v ddcutil &>/dev/null; then
-        ddcutil dpms on 2>/dev/null || true
+    if [[ $SKIP_DISPLAY_WAKE -eq 1 ]]; then
+        return 0
     fi
-    
-    # Method 2: Use xset if X is somehow available
-    if command -v xset &>/dev/null; then
-        DISPLAY=:0 xset dpms force on 2>/dev/null || true
-    fi
-    
-    # Method 3: Force VT switches to wake display
-    local current_vt=$(fgconsole 2>/dev/null || echo "1")
-    
-    # Switch to a different VT and back
-    if [[ "$current_vt" == "1" ]]; then
-        chvt 2 2>/dev/null || true
-        sleep 0.2
-        chvt 1 2>/dev/null || true
-    else
-        chvt 1 2>/dev/null || true
-        sleep 0.2
-        chvt "$current_vt" 2>/dev/null || true
-    fi
-    
-    # Method 4: Try to trigger a mode set via DRM
-    # This often forces the display to wake up
-    if command -v kmscon &>/dev/null; then
-        kmscon --vt 1 --seats seat0 --no-switchvt &
-        sleep 0.5
-        pkill kmscon 2>/dev/null || true
-    fi
+
+    case "$WAKE_METHOD" in
+        none)
+            return 0
+            ;;
+        ddcutil)
+            if command -v ddcutil &>/dev/null; then
+                ddcutil dpms on 2>/dev/null || true
+            fi
+            ;;
+        vt)
+            if [[ $SKIP_VT_SWITCH -eq 0 ]]; then
+                local current_vt=$(fgconsole 2>/dev/null || echo "1")
+                if [[ "$current_vt" != "1" ]]; then
+                    chvt 1 2>/dev/null || true
+                else
+                    chvt 2 2>/dev/null || true
+                    sleep $DELAY_VT_SWITCH
+                    chvt 1 2>/dev/null || true
+                fi
+            fi
+            ;;
+    esac
 }
 
-# Function to clean up Kodi processes
-cleanup_kodi() {
-    log_info "Cleaning up Kodi processes..."
-    
-    # First try graceful termination
-    pkill -TERM -f "kodi" 2>/dev/null || true
-    
-    # Give processes time to exit cleanly
-    local count=0
-    while pgrep -f "kodi" >/dev/null && [ $count -lt 10 ]; do
-        sleep 0.5
-        ((count++))
-    done
-    
-    # Force kill if still running
-    if pgrep -f "kodi" >/dev/null; then
-        log_info "Force killing remaining Kodi processes..."
-        pkill -KILL -f "kodi" 2>/dev/null || true
+# Optimized process cleanup
+cleanup_processes() {
+    if [[ $SKIP_PROCESS_CLEANUP -eq 1 ]]; then
+        return 0
     fi
+
+    local target="$1"
+
+    case "$target" in
+        kodi)
+            pkill -TERM -f "kodi" 2>/dev/null || true
+            ;;
+        gaming)
+            pkill -TERM -f "steam" 2>/dev/null || true
+            pkill -TERM -f "gamescope" 2>/dev/null || true
+            ;;
+    esac
+
+    # Only wait and force kill if processes remain
+    sleep $DELAY_PROCESS_KILL
+
+    case "$target" in
+        kodi)
+            if pgrep -f "kodi" >/dev/null; then
+                pkill -KILL -f "kodi" 2>/dev/null || true
+            fi
+            ;;
+        gaming)
+            if pgrep -f "steam|gamescope" >/dev/null; then
+                pkill -KILL -f "steam" 2>/dev/null || true
+                pkill -KILL -f "gamescope" 2>/dev/null || true
+            fi
+            ;;
+    esac
 }
 
-# Function to ensure DRM is ready
+# Optimized DRM readiness check
 ensure_drm_ready() {
-    log_info "Ensuring DRM is ready..."
-    
-    # Wait for DRM device to be accessible
+    if [[ $SKIP_DRM_WAIT -eq 1 ]]; then
+        return 0
+    fi
+
     local count=0
-    while [ ! -e /dev/dri/card0 ] && [ $count -lt 20 ]; do
-        sleep 0.2
+    while [ ! -e /dev/dri/card0 ] && [ $count -lt 10 ]; do
+        sleep 0.1
         ((count++))
     done
-    
+
     if [ ! -e /dev/dri/card0 ]; then
         log_error "DRM device not found after waiting"
         return 1
     fi
-    
-    # Give DRM a moment to settle
-    sleep 1
+
+    sleep $DELAY_DRM_SETTLE
+    return 0
 }
 
-# Function to force display detection
-force_display_detection() {
-    log_info "Forcing display detection..."
-    
-    # Try to force HDMI hotplug detection
-    if [ -f /sys/class/drm/card0-HDMI-A-1/status ]; then
-        # Read current status to trigger detection
-        cat /sys/class/drm/card0-HDMI-A-1/status >/dev/null 2>&1 || true
-    fi
-    
-    # If modetest is available, use it to force detection
-    if command -v modetest &>/dev/null; then
-        timeout 2 modetest -M amdgpu 2>/dev/null || true
-    fi
-}
-
-# Function to switch to Kodi
+# Optimized switch to Kodi
 switch_to_kodi() {
     log_info "Switching to Kodi HDR mode..."
-    
-    # Check if already in Kodi mode
-    current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
-    if [[ "$current_state" == "kodi" ]] && systemctl is-active --quiet kodi-gbm.service; then
+
+    # Quick check if already in Kodi mode
+    if systemctl is-active --quiet kodi-gbm.service; then
         log_info "Already in Kodi mode"
         return 0
     fi
-    
+
     # Update SDDM configuration for next boot
     mkdir -p "$(dirname "$SDDM_CONF")"
     {
         echo "[Autologin]"
         echo "Session=kodi-gbm-session.desktop"
     } > "$SDDM_CONF"
-    
+
     # Stop display manager if running
     if systemctl is-active --quiet sddm.service; then
         log_info "Stopping SDDM..."
@@ -205,47 +231,35 @@ switch_to_kodi() {
             log_error "Failed to stop SDDM"
             return 1
         }
-        
-        # Wait for gamescope to fully stop
-        sleep 3
+        sleep $DELAY_SDDM_STOP
     fi
-    
-    # Clean up any gaming processes
-    pkill -f "steam" 2>/dev/null || true
-    pkill -f "gamescope" 2>/dev/null || true
-    
-    # Clean up zombie processes
-    log_info "Cleaning up zombie processes..."
-    pkill -9 -f "SteamGridDB" 2>/dev/null || true
-    pkill -9 -f "Kodi Launcher" 2>/dev/null || true
-    
+
+    # Clean up gaming processes
+    cleanup_processes "gaming"
+
     # Ensure DRM is ready
     ensure_drm_ready
-    
-    # Force display detection
-    force_display_detection
-    
-    # Ensure we're on TTY1
-    chvt 1 2>/dev/null || true
-    sleep 0.5
-    
-    # Wake the display BEFORE starting Kodi
+
+    # VT switch if enabled
+    if [[ $SKIP_VT_SWITCH -eq 0 ]]; then
+        chvt 1 2>/dev/null || true
+        sleep $DELAY_VT_SWITCH
+    fi
+
+    # Wake display before starting
     wake_display
-    
+
     # Start Kodi
     log_info "Starting Kodi service..."
     if systemctl start kodi-gbm.service; then
         echo "kodi" > "$STATE_FILE"
-        
-        # Give Kodi a moment to initialize
-        sleep 2
-        
-        # Wake display again after Kodi starts
-        wake_display
-        
-        # One more display detection attempt
-        force_display_detection
-        
+        sleep $DELAY_KODI_START
+
+        # Optional second wake attempt
+        if [[ "$WAKE_METHOD" != "none" ]]; then
+            wake_display
+        fi
+
         log_info "Successfully switched to Kodi"
         return 0
     else
@@ -254,48 +268,45 @@ switch_to_kodi() {
     fi
 }
 
-# Function to switch to gaming mode
+# Optimized switch to gaming mode
 switch_to_gamemode() {
     log_info "Switching to Gaming mode..."
-    
-    # Check if already in gaming mode
-    current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
-    if [[ "$current_state" == "gamemode" ]] && systemctl is-active --quiet sddm.service; then
+
+    # Quick check if already in gaming mode
+    if systemctl is-active --quiet sddm.service; then
         log_info "Already in Gaming mode"
         return 0
     fi
-    
+
     # Update SDDM configuration
     mkdir -p "$(dirname "$SDDM_CONF")"
     {
         echo "[Autologin]"
         echo "Session=gamescope-session.desktop"
     } > "$SDDM_CONF"
-    
+
     # Stop Kodi if running
     if systemctl is-active --quiet kodi-gbm.service; then
         log_info "Stopping Kodi service..."
         systemctl stop kodi-gbm.service || true
-        
-        # Wait a moment for clean shutdown
-        sleep 2
-        
-        # Force cleanup any remaining processes
-        cleanup_kodi
+        sleep $DELAY_KODI_STOP
+        cleanup_processes "kodi"
     fi
-    
+
     # Ensure DRM is ready
     ensure_drm_ready
-    
-    # Ensure we're on TTY1
-    chvt 1 2>/dev/null || true
-    
-    # Wake display before starting SDDM
+
+    # VT switch if enabled
+    if [[ $SKIP_VT_SWITCH -eq 0 ]]; then
+        chvt 1 2>/dev/null || true
+    fi
+
+    # Wake display
     wake_display
-    
+
     # Reset any failed services
     systemctl reset-failed sddm.service 2>/dev/null || true
-    
+
     # Start SDDM
     log_info "Starting SDDM..."
     if systemctl start sddm.service; then
@@ -312,19 +323,25 @@ switch_to_gamemode() {
 log_info "Entering main loop, watching $TRIGGER_FILE"
 
 while true; do
-    # Wait for file change or timeout every 60 seconds for health check
-    if inotifywait -t 60 -e modify,create "$TRIGGER_FILE" 2>/dev/null; then
+    # Wait for file change
+    if [[ $ENABLE_HEALTH_CHECK -eq 1 ]]; then
+        timeout_arg="-t 60"
+    else
+        timeout_arg=""
+    fi
+
+    if inotifywait $timeout_arg -e modify,create "$TRIGGER_FILE" 2>/dev/null; then
         # Lock to prevent concurrent processing
         exec 200>"$LOCK_FILE"
         if ! flock -n 200; then
             log_info "Another switch operation in progress, skipping..."
             continue
         fi
-        
+
         # Read and clear the request
         REQUEST=$(cat "$TRIGGER_FILE" 2>/dev/null | tr -d '\n' | tr -d ' ')
         echo -n "" > "$TRIGGER_FILE"
-        
+
         # Process the request
         case "$REQUEST" in
             "kodi")
@@ -340,29 +357,30 @@ while true; do
                 log_error "Unknown request: $REQUEST"
                 ;;
         esac
-        
+
         # Release lock
         flock -u 200
     fi
-    
-    # Health check - ensure state file matches reality
-    # FIX: Don't use 'local' outside of a function
-    current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
-    if [[ "$current_state" == "kodi" ]] && ! systemctl is-active --quiet kodi-gbm.service; then
-        log_info "State mismatch detected: state=kodi but service not running"
-        echo "unknown" > "$STATE_FILE"
-    elif [[ "$current_state" == "gamemode" ]] && ! systemctl is-active --quiet sddm.service; then
-        log_info "State mismatch detected: state=gamemode but SDDM not running"
-        echo "unknown" > "$STATE_FILE"
+
+    # Optional health check
+    if [[ $ENABLE_HEALTH_CHECK -eq 1 ]]; then
+        current_state=$(cat "$STATE_FILE" 2>/dev/null || echo "unknown")
+        if [[ "$current_state" == "kodi" ]] && ! systemctl is-active --quiet kodi-gbm.service; then
+            log_info "State mismatch detected: state=kodi but service not running"
+            echo "unknown" > "$STATE_FILE"
+        elif [[ "$current_state" == "gamemode" ]] && ! systemctl is-active --quiet sddm.service; then
+            log_info "State mismatch detected: state=gamemode but SDDM not running"
+            echo "unknown" > "$STATE_FILE"
+        fi
     fi
 done
 EOF
     chmod +x "/usr/bin/session-switch-handler"
 
-    # Create systemd service
+    # Create systemd service with environment file support
     cat > "/usr/lib/systemd/system/session-switch-handler.service" << 'EOF'
 [Unit]
-Description=Session Switch Handler for Kodi/GameMode
+Description=Optimized Session Switch Handler for Kodi/GameMode
 After=multi-user.target
 Before=sddm.service kodi-gbm.service
 
@@ -387,14 +405,44 @@ LimitNOFILE=4096
 # Kill only the main process
 KillMode=process
 
+# Environment configuration
+EnvironmentFile=-/etc/sysconfig/session-switch-handler
+
 [Install]
 WantedBy=multi-user.target
+EOF
+
+    # Create default environment file
+    cat > "/etc/sysconfig/session-switch-handler" << 'EOF'
+# Session Switch Handler Configuration
+# Modify these values based on your testing results
+
+# Skip display wake attempts (0=enabled, 1=disabled)
+SKIP_DISPLAY_WAKE=0
+
+# Skip VT switching (0=enabled, 1=disabled)
+SKIP_VT_SWITCH=0
+
+# Skip process cleanup (0=enabled, 1=disabled)
+SKIP_PROCESS_CLEANUP=0
+
+# Skip DRM readiness check (0=enabled, 1=disabled)
+SKIP_DRM_WAIT=0
+
+# Use reduced delays for faster switching (0=normal, 1=fast)
+REDUCE_DELAYS=0
+
+# Display wake method (none, ddcutil, vt)
+WAKE_METHOD=ddcutil
+
+# Enable health check (0=disabled, 1=enabled)
+ENABLE_HEALTH_CHECK=0
 EOF
 
     # Enable the service
     systemctl enable session-switch-handler.service
 
-    log_success "Session switch handler installed and enabled"
+    log_success "Optimized session switch handler installed and enabled"
 }
 
 install_session_request_scripts() {
@@ -495,11 +543,11 @@ patch_kodi_standalone_for_gbm() {
         log_info "Backed up original kodi-standalone"
     fi
 
-    # Create GBM-aware version without switch-to-gamemode calls
+    # Create optimized GBM-aware version
     cat > "/usr/bin/kodi-standalone" << 'EOF'
 #!/bin/sh
 #
-# Kodi standalone startup script for GBM/HDR mode
+# Optimized Kodi standalone startup script for GBM/HDR mode
 #
 
 prefix="/usr"
@@ -510,45 +558,45 @@ libdir="/usr/lib64"
 # Kodi GBM binary
 APP="${libdir}/kodi/kodi-gbm"
 
-# Start PulseAudio if available
-PULSE_START="$(command -v start-pulseaudio-x11)"
-if [ -n "$PULSE_START" ]; then
-  $PULSE_START
+# Start PulseAudio if available and not already running
+if command -v start-pulseaudio-x11 >/dev/null 2>&1; then
+    if ! pgrep -x pulseaudio >/dev/null 2>&1; then
+        start-pulseaudio-x11 2>/dev/null || true
+    fi
 fi
 
-# Crash recovery loop
+# Crash recovery loop with faster recovery
 LOOP=1
 CRASHCOUNT=0
 LASTSUCCESSFULSTART=$(date +%s)
 
 while [ $LOOP -eq 1 ]
 do
-  # Run Kodi with all arguments
-  $APP "$@"
-  RET=$?
-  NOW=$(date +%s)
+    # Run Kodi with all arguments
+    $APP "$@"
+    RET=$?
+    NOW=$(date +%s)
 
-  if [ $RET -ge 64 ] && [ $RET -le 66 ] || [ $RET -eq 0 ]; then
-    # Clean exit
-    LOOP=0
-  else
-    # Crash handling
-    DIFF=$((NOW-LASTSUCCESSFULSTART))
-    if [ $DIFF -gt 60 ]; then
-      # Not a startup crash, reset counter
-      LASTSUCCESSFULSTART=$NOW
-      CRASHCOUNT=0
-    else
-      # Startup crash, increment counter
-      CRASHCOUNT=$((CRASHCOUNT+1))
-      if [ $CRASHCOUNT -ge 3 ]; then
-        # Too many crashes, bail out
+    if [ $RET -ge 64 ] && [ $RET -le 66 ] || [ $RET -eq 0 ]; then
+        # Clean exit
         LOOP=0
-        echo "Kodi crashed 3 times in ${DIFF} seconds. Giving up." >&2
-        # Note: User can manually switch back using request-gamemode
-      fi
+    else
+        # Crash handling
+        DIFF=$((NOW-LASTSUCCESSFULSTART))
+        if [ $DIFF -gt 60 ]; then
+            # Not a startup crash, reset counter
+            LASTSUCCESSFULSTART=$NOW
+            CRASHCOUNT=0
+        else
+            # Startup crash, increment counter
+            CRASHCOUNT=$((CRASHCOUNT+1))
+            if [ $CRASHCOUNT -ge 3 ]; then
+                # Too many crashes, bail out
+                LOOP=0
+                echo "Kodi crashed 3 times in ${DIFF} seconds. Giving up." >&2
+            fi
+        fi
     fi
-  fi
 done
 EOF
     chmod +x /usr/bin/kodi-standalone
@@ -593,11 +641,11 @@ EOF
     chage -E -1 kodi
     chage -M -1 kodi
 
-    # Simplified kodi-gbm.service
+    # Optimized kodi-gbm.service
     cat > "/usr/lib/systemd/system/kodi-gbm.service" << 'EOF'
 [Unit]
 Description=Kodi standalone (GBM/HDR)
-After=remote-fs.target systemd-user-sessions.service network-online.target nss-lookup.target sound.target bluetooth.target polkit.service upower.service
+After=remote-fs.target systemd-user-sessions.service network-online.target sound.target bluetooth.target polkit.service upower.service
 Wants=network-online.target polkit.service upower.service
 Conflicts=getty@tty1.service sddm.service
 
@@ -608,7 +656,6 @@ SupplementaryGroups=audio video render input optical
 PAMName=login
 TTYPath=/dev/tty1
 
-ExecStartPre=/usr/bin/chvt 1
 ExecStart=/usr/bin/kodi-standalone
 ExecStop=-/usr/bin/killall --exact kodi-gbm
 
@@ -639,334 +686,40 @@ EOF
     log_success "kodi-gbm service installed"
 }
 
+# Create configuration helper script
+create_config_helper() {
+    log_info "Creating configuration helper..."
 
-testing() {
-
-        cat > "/usr/bin/diagnose-session-switch" << 'EOF'
+    cat > "/usr/bin/session-switch-config" << 'EOF'
 #!/bin/bash
-# /usr/bin/diagnose-session-switch
-# Comprehensive diagnostic tool for session switching issues
+# Helper script to configure session switch optimization
 
-set -euo pipefail
+CONFIG_FILE="/etc/sysconfig/session-switch-handler"
 
-# Color codes for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+echo "Session Switch Configuration Helper"
+echo "=================================="
+echo ""
+echo "Current configuration:"
+cat "$CONFIG_FILE" | grep -E "^[^#].*=" | sed 's/^/  /'
+echo ""
 
-# Diagnostic output file
-DIAG_FILE="/tmp/session-switch-diagnostic-$(date +%Y%m%d-%H%M%S).log"
-
-# Functions
-log_section() {
-    echo -e "\n${BLUE}==== $1 ====${NC}" | tee -a "$DIAG_FILE"
-}
-
-log_info() {
-    echo -e "${GREEN}[INFO]${NC} $1" | tee -a "$DIAG_FILE"
-}
-
-log_warning() {
-    echo -e "${YELLOW}[WARN]${NC} $1" | tee -a "$DIAG_FILE"
-}
-
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1" | tee -a "$DIAG_FILE"
-}
-
-# Start diagnostic
-echo "Session Switch Diagnostic Tool" | tee "$DIAG_FILE"
-echo "=============================" | tee -a "$DIAG_FILE"
-echo "Date: $(date)" | tee -a "$DIAG_FILE"
-echo "Diagnostic output will be saved to: $DIAG_FILE"
-
-# Basic system info
-log_section "System Information"
-uname -a | tee -a "$DIAG_FILE"
-echo "Current user: $(whoami)" | tee -a "$DIAG_FILE"
-echo "Current TTY: $(tty 2>/dev/null || echo 'unknown')" | tee -a "$DIAG_FILE"
-
-# Session state
-log_section "Session State"
-if [[ -f /var/lib/session-state ]]; then
-    echo "Session state file: $(cat /var/lib/session-state)" | tee -a "$DIAG_FILE"
-else
-    log_warning "Session state file not found"
-fi
-
-if [[ -f /var/run/session-switch-request ]]; then
-    REQUEST=$(cat /var/run/session-switch-request 2>/dev/null || echo "empty")
-    echo "Pending request: '$REQUEST'" | tee -a "$DIAG_FILE"
-else
-    echo "No pending request" | tee -a "$DIAG_FILE"
-fi
-
-# Service status
-log_section "Service Status"
-for service in session-switch-handler kodi-gbm sddm gamescope-session; do
-    STATUS=$(systemctl is-active "$service" 2>/dev/null || echo "unknown")
-    if [[ "$STATUS" == "active" ]]; then
-        log_info "$service: $STATUS"
-    else
-        log_warning "$service: $STATUS"
-    fi
-
-    # Get last 5 log lines for failed services
-    if [[ "$STATUS" == "failed" ]]; then
-        echo "Last logs for $service:" | tee -a "$DIAG_FILE"
-        journalctl -u "$service" -n 5 --no-pager 2>/dev/null | tee -a "$DIAG_FILE" || true
-    fi
-done
-
-# Process check
-log_section "Running Processes"
-echo "Kodi processes:" | tee -a "$DIAG_FILE"
-pgrep -la kodi 2>/dev/null | tee -a "$DIAG_FILE" || echo "  None found" | tee -a "$DIAG_FILE"
-
-echo -e "\nGamescope processes:" | tee -a "$DIAG_FILE"
-pgrep -la gamescope 2>/dev/null | tee -a "$DIAG_FILE" || echo "  None found" | tee -a "$DIAG_FILE"
-
-echo -e "\nSteam processes:" | tee -a "$DIAG_FILE"
-pgrep -la steam 2>/dev/null | head -5 | tee -a "$DIAG_FILE" || echo "  None found" | tee -a "$DIAG_FILE"
-
-echo -e "\nSDDM processes:" | tee -a "$DIAG_FILE"
-pgrep -la sddm 2>/dev/null | tee -a "$DIAG_FILE" || echo "  None found" | tee -a "$DIAG_FILE"
-
-# TTY and VT information
-log_section "TTY/VT State"
-echo "Active VT: $(cat /sys/class/tty/tty0/active 2>/dev/null || echo 'unknown')" | tee -a "$DIAG_FILE"
-echo "TTY1 processes:" | tee -a "$DIAG_FILE"
-ps aux | grep -E "tty1|TTY1" | grep -v grep | tee -a "$DIAG_FILE" || echo "  None found" | tee -a "$DIAG_FILE"
-
-# Check who owns TTY1
-echo -e "\nTTY1 ownership:" | tee -a "$DIAG_FILE"
-ls -la /dev/tty1 2>/dev/null | tee -a "$DIAG_FILE" || echo "  Cannot check" | tee -a "$DIAG_FILE"
-
-# GPU/DRM information
-log_section "GPU/DRM State"
-echo "DRM devices:" | tee -a "$DIAG_FILE"
-ls -la /dev/dri/ 2>/dev/null | tee -a "$DIAG_FILE" || echo "  Cannot list" | tee -a "$DIAG_FILE"
-
-echo -e "\nDRM master status:" | tee -a "$DIAG_FILE"
-for card in /dev/dri/card*; do
-    if [[ -e "$card" ]]; then
-        echo "  $card:" | tee -a "$DIAG_FILE"
-        # Check if any process has it open
-        lsof "$card" 2>/dev/null | head -5 | tee -a "$DIAG_FILE" || echo "    No processes found" | tee -a "$DIAG_FILE"
-    fi
-done
-
-echo -e "\nGPU driver:" | tee -a "$DIAG_FILE"
-lspci -k | grep -A 3 -E "VGA|3D|Display" | tee -a "$DIAG_FILE"
-
-# Display/monitor state
-log_section "Display State"
-echo "Connected displays (via DRM):" | tee -a "$DIAG_FILE"
-for card in /sys/class/drm/card*; do
-    if [[ -d "$card" ]]; then
-        CARD_NAME=$(basename "$card")
-        for connector in "$card"/*-*/status; do
-            if [[ -f "$connector" ]]; then
-                CONN_NAME=$(basename $(dirname "$connector"))
-                STATUS=$(cat "$connector" 2>/dev/null)
-                echo "  $CARD_NAME/$CONN_NAME: $STATUS" | tee -a "$DIAG_FILE"
-            fi
-        done
-    fi
-done
-
-# Check for display power management
-echo -e "\nDisplay power state:" | tee -a "$DIAG_FILE"
-for dpms in /sys/class/drm/card*/*/dpms; do
-    if [[ -f "$dpms" ]]; then
-        CONN=$(basename $(dirname "$dpms"))
-        STATE=$(cat "$dpms" 2>/dev/null || echo "unknown")
-        echo "  $CONN: $STATE" | tee -a "$DIAG_FILE"
-    fi
-done
-
-# Session handler logs
-log_section "Session Handler Logs (last 20 lines)"
-journalctl -u session-switch-handler -n 20 --no-pager 2>/dev/null | tee -a "$DIAG_FILE" || \
-    log_warning "Could not retrieve session handler logs"
-
-# Kodi service logs
-log_section "Kodi Service Logs (last 20 lines)"
-journalctl -u kodi-gbm -n 20 --no-pager 2>/dev/null | tee -a "$DIAG_FILE" || \
-    log_warning "Could not retrieve Kodi logs"
-
-# SDDM logs
-log_section "SDDM Logs (last 10 lines)"
-journalctl -u sddm -n 10 --no-pager 2>/dev/null | tee -a "$DIAG_FILE" || \
-    log_warning "Could not retrieve SDDM logs"
-
-# Check for common issues
-log_section "Common Issues Check"
-
-# Check if kodi user exists and has proper groups
-if id kodi &>/dev/null; then
-    log_info "Kodi user exists"
-    echo "  Groups: $(groups kodi)" | tee -a "$DIAG_FILE"
-else
-    log_error "Kodi user does not exist!"
-fi
-
-# Check if session-switch-handler is enabled
-if systemctl is-enabled session-switch-handler &>/dev/null; then
-    log_info "Session switch handler is enabled"
-else
-    log_error "Session switch handler is not enabled!"
-fi
-
-# Check permissions on key files
-echo -e "\nFile permissions:" | tee -a "$DIAG_FILE"
-ls -la /var/run/session-switch-request 2>/dev/null | tee -a "$DIAG_FILE" || echo "  Trigger file missing" | tee -a "$DIAG_FILE"
-ls -la /var/lib/session-state 2>/dev/null | tee -a "$DIAG_FILE" || echo "  State file missing" | tee -a "$DIAG_FILE"
-
-# Check for zombie processes
-log_section "Zombie/Defunct Processes"
-ZOMBIES=$(ps aux | grep -E "\<defunct\>" | grep -v grep)
-if [[ -n "$ZOMBIES" ]]; then
-    log_warning "Found zombie processes:"
-    echo "$ZOMBIES" | tee -a "$DIAG_FILE"
-else
-    log_info "No zombie processes found"
-fi
-
-# Memory and resource usage
-log_section "Resource Usage"
-echo "Memory usage:" | tee -a "$DIAG_FILE"
-free -h | tee -a "$DIAG_FILE"
-
-echo -e "\nTop 5 CPU consumers:" | tee -a "$DIAG_FILE"
-ps aux --sort=-%cpu | head -6 | tee -a "$DIAG_FILE"
-
-# Attempt to gather timing information
-log_section "Recent Session Switch Attempts"
-echo "Last 10 session-related journal entries:" | tee -a "$DIAG_FILE"
-journalctl -n 50 | grep -E "session-switch|kodi-gbm|sddm|gamescope|Switching to" | tail -10 | tee -a "$DIAG_FILE" || \
-    echo "No recent session switch entries found" | tee -a "$DIAG_FILE"
-
-# Test scenarios
-log_section "Diagnostic Tests"
-
-# Test 1: Can we access TTY1?
-echo -n "Testing TTY1 access: " | tee -a "$DIAG_FILE"
-if echo "test" > /dev/tty1 2>/dev/null; then
-    log_info "SUCCESS - Can write to TTY1"
-else
-    log_warning "FAILED - Cannot write to TTY1"
-fi
-
-# Test 2: Is DRM master available?
-echo -n "Testing DRM card0 access: " | tee -a "$DIAG_FILE"
-if [[ -r /dev/dri/card0 ]]; then
-    log_info "SUCCESS - Can read card0"
-else
-    log_warning "FAILED - Cannot read card0"
-fi
-
-# Summary and recommendations
-log_section "Summary and Recommendations"
-
-# Analyze common failure patterns
-if pgrep gamescope &>/dev/null && ! pgrep kodi &>/dev/null; then
-    log_warning "Gamescope is still running but Kodi is not"
-    echo "  → Gamescope may not be releasing resources properly" | tee -a "$DIAG_FILE"
-fi
-
-if ! systemctl is-active --quiet session-switch-handler; then
-    log_error "Session switch handler is not running!"
-    echo "  → Try: sudo systemctl restart session-switch-handler" | tee -a "$DIAG_FILE"
-fi
-
-ACTIVE_VT=$(cat /sys/class/tty/tty0/active 2>/dev/null)
-if [[ "$ACTIVE_VT" != "tty1" ]]; then
-    log_warning "Not on TTY1 (current: $ACTIVE_VT)"
-    echo "  → TTY switching may be failing" | tee -a "$DIAG_FILE"
-fi
-
-# Final message
-echo -e "\n${GREEN}Diagnostic complete!${NC}"
-echo "Full output saved to: $DIAG_FILE"
-echo -e "\nTo share this diagnostic, run:"
-echo "  cat $DIAG_FILE | nc termbin.com 9999"
+echo "To apply optimized settings based on testing, edit:"
+echo "  $CONFIG_FILE"
+echo ""
+echo "Then restart the service:"
+echo "  sudo systemctl restart session-switch-handler"
+echo ""
+echo "Example fast configuration:"
+echo "  REDUCE_DELAYS=1"
+echo "  SKIP_DISPLAY_WAKE=1  # if display wake not needed"
+echo "  WAKE_METHOD=none     # or ddcutil if wake is needed"
 EOF
-    chmod +x "/usr/bin/diagnose-session-switch"
-
-
-    cat > "/usr/bin/force-display-wake" << 'EOF'
-#!/bin/bash
-# /usr/bin/force-display-wake
-# Manual display wake utility for debugging
-
-echo "Attempting to wake display..."
-
-# Try VT switching
-current_vt=$(fgconsole 2>/dev/null || echo "1")
-echo "Current VT: $current_vt"
-
-echo "Switching VTs..."
-chvt 7 2>/dev/null || true
-sleep 0.5
-chvt 1 2>/dev/null || true
-
-# Try to read HDMI status
-if [ -f /sys/class/drm/card0-HDMI-A-1/status ]; then
-    echo "HDMI status: $(cat /sys/class/drm/card0-HDMI-A-1/status)"
-fi
-
-# If Kodi is running, send it a refresh signal
-if pgrep -x "kodi-gbm" >/dev/null; then
-    echo "Sending SIGUSR1 to Kodi..."
-    pkill -USR1 -x "kodi-gbm" || true
-fi
-
-echo "Display wake attempted"
-EOF
-    chmod +x "/usr/bin/force-display-wake"
-
-    cat > "/usr/bin/monitor-session-switch" << 'EOF'
-#!/bin/bash
-# /usr/bin/monitor-session-switch
-# Real-time monitoring of session switch process
-
-echo "Monitoring session switch in real-time..."
-echo "Press Ctrl+C to stop"
-echo "================================"
-
-# Monitor multiple sources simultaneously
-tail -f /var/log/messages \
-    <(journalctl -u session-switch-handler -f 2>/dev/null) \
-    <(journalctl -u kodi-gbm -f 2>/dev/null) \
-    <(journalctl -u sddm -f 2>/dev/null) \
-    2>/dev/null | while read line; do
-
-    # Highlight important lines
-    if echo "$line" | grep -qE "ERROR|error|failed|Failed"; then
-        echo -e "\033[0;31m$line\033[0m"  # Red
-    elif echo "$line" | grep -qE "Switching to|Starting|Stopping"; then
-        echo -e "\033[0;34m$line\033[0m"  # Blue
-    elif echo "$line" | grep -qE "Successfully|started|active"; then
-        echo -e "\033[0;32m$line\033[0m"  # Green
-    elif echo "$line" | grep -qE "kodi|gamescope|sddm|session-switch"; then
-        echo -e "\033[1;33m$line\033[0m"  # Yellow
-    else
-        echo "$line"
-    fi
-done
-EOF
-    chmod +x "/usr/bin/monitor-session-switch"
-
-
+    chmod +x "/usr/bin/session-switch-config"
 }
-
 
 # Main execution
 main() {
-    log_subsection "Session Management Service Configuration"
+    log_subsection "Optimized Session Management Service Configuration"
 
     create_polkit_rule
     install_session_switch_handler
@@ -974,15 +727,23 @@ main() {
     create_desktop_entries
     patch_kodi_standalone_for_gbm
     install_kodi_gbm_service
+    create_config_helper
 
-
-    log_success "Session management configured with file-watch handler"
+    log_success "Optimized session management configured"
+    log_info ""
+    log_info "Configuration:"
+    log_info "  - Edit /etc/sysconfig/session-switch-handler to optimize based on testing"
+    log_info "  - Use session-switch-config to view current settings"
+    log_info ""
     log_info "Usage:"
     log_info "  - Switch to Kodi: request-kodi"
     log_info "  - Switch to Gaming: request-gamemode"
     log_info "  - From Kodi UI: run kodi-request-gamemode"
     log_info ""
-    log_info "The session-switch-handler service will manage all transitions"
+    log_info "Testing:"
+    log_info "  - Run benchmarks with: session-switch-benchmark"
+    log_info "  - Analyze results with: session-switch-analyze report"
+    log_info "  - Apply optimal config to /etc/sysconfig/session-switch-handler"
 }
 
 main "$@"
