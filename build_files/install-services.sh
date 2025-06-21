@@ -219,37 +219,63 @@ set_drm_content_type() {
 
     if command -v modetest >/dev/null 2>&1; then
         # Get full modetest output
-        local modetest_output=$(modetest -c -p 2>/dev/null)
+        local modetest_output=$(modetest -c 2>/dev/null)
 
         # Find the connector section for HDMI
-        local connector_section=$(echo "$modetest_output" | awk "/^[0-9]+.*connected.*$connector_name/{flag=1} flag && /^[0-9]+.*connected|^$/{if(p)exit; p=1} flag")
+        local connector_section=$(echo "$modetest_output" | awk "/^[0-9]+.*connected.*$connector_name/{flag=1} flag && /^[0-9]+.*(connected|disconnected)/{if(flag && !/^[0-9]+.*$connector_name/)exit} flag")
 
         # Extract connector ID
         local connector_id=$(echo "$connector_section" | head -1 | awk '{print $1}')
 
-        # Find the property ID for "content type"
-        local property_id=$(echo "$connector_section" | grep -E "^\s+[0-9]+\s+content type:" | awk '{print $1}')
+        if [ -n "$connector_id" ]; then
+            log_info "Found connector ID: $connector_id"
 
-        if [ -n "$connector_id" ] && [ -n "$property_id" ]; then
-            log_info "Found connector ID: $connector_id, property ID: $property_id"
+            # Check if the connector has the "content type" property
+            if echo "$connector_section" | grep -q "content type:"; then
+                log_info "Found 'content type' property on connector $connector_id"
 
-            # Set the property
-            if modetest -w "${connector_id}:${property_id}:${content_type}" 2>/dev/null; then
-                log_info "Content type set successfully to $content_type"
+                # Set the property using the property name
+                if modetest -w "${connector_id}:content type:${content_type}" 2>/dev/null; then
+                    log_info "Content type set successfully to $content_type"
 
-                # Verify the change
-                local new_value=$(modetest -c 2>/dev/null | grep -A20 "^${connector_id}.*connected" | grep "content type:" -A1 | grep "value:" | awk '{print $2}')
-                if [ "$new_value" = "$content_type" ]; then
-                    log_info "Verified: content type is now $new_value"
+                    # Verify the change
+                    local new_value=$(modetest -c 2>/dev/null | grep -A40 "^${connector_id}.*connected" | grep -A2 "content type:" | grep "value:" | awk '{print $2}')
+                    if [ "$new_value" = "$content_type" ]; then
+                        log_info "Verified: content type is now $new_value"
+                        case $content_type in
+                            0) log_info "ALLM disabled: No Data" ;;
+                            1) log_info "ALLM disabled: Graphics" ;;
+                            2) log_info "ALLM disabled: Photo" ;;
+                            3) log_info "ALLM disabled: Cinema" ;;
+                            4) log_info "ALLM enabled: Game" ;;
+                        esac
+                    else
+                        log_warning "Verification failed: expected $content_type, got $new_value"
+                    fi
+
+                    return 0
+                else
+                    log_warning "Failed to set content_type via modetest"
+                    
+                    # Try with quotes around the property name since it has a space
+                    log_info "Retrying with quoted property name..."
+                    if modetest -w "${connector_id}:'content type':${content_type}" 2>/dev/null; then
+                        log_info "Content type set successfully with quoted property name"
+                        return 0
+                    fi
                 fi
-
-                return 0
             else
-                log_warning "Failed to set content_type via modetest"
+                log_error "Connector $connector_id does not have 'content type' property"
+                log_info "Available properties:"
+                echo "$connector_section" | grep -E "^\s+[0-9]+\s+" | sed 's/^/  /'
             fi
         else
-            log_error "Could not find connector ID or property ID"
+            log_error "Could not find connector ID for $connector_name"
+            log_info "Available connectors:"
+            echo "$modetest_output" | grep -E "^[0-9]+.*(connected|disconnected)" | sed 's/^/  /'
         fi
+    else
+        log_error "modetest not found"
     fi
 
     return 1
