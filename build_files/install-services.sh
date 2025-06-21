@@ -185,61 +185,6 @@ cleanup_processes() {
     esac
 }
 
-# Function: Find the active HDMI connector
-find_active_hdmi_connector() {
-    local connector
-    for connector in /sys/class/drm/card*-HDMI-*/status; do
-        if [ -f "$connector" ] && [ "$(cat "$connector")" = "connected" ]; then
-            echo "${connector%/status}"
-            return 0
-        fi
-    done
-    return 1
-}
-
-# Function: Set DRM content type property
-set_drm_content_type() {
-    local content_type=$1
-    local active_connector
-
-    # Find the active HDMI connector
-    if ! active_connector=$(find_active_hdmi_connector); then
-        log_error "No active HDMI connector found"
-        return 1
-    fi
-
-    # Extract connector name
-    local connector_name=$(basename "$active_connector" | sed 's/card[0-9]*-//')
-    
-    log_info "Setting content_type to $content_type on connector $connector_name"
-
-    if command -v modetest >/dev/null 2>&1; then
-        # Get full modetest output
-        local modetest_output=$(modetest -c 2>/dev/null)
-
-        # Find the connector ID for our HDMI connector
-        local connector_id=$(echo "$modetest_output" | grep -E "^[0-9]+.*connected.*$connector_name" | awk '{print $1}')
-
-        if [ -n "$connector_id" ]; then
-            log_info "Found connector ID: $connector_id for $connector_name"
-
-            # Set the property using the property name
-            if modetest -w "${connector_id}:content type:${content_type}" 2>/dev/null; then
-                log_info "Content type set successfully to $content_type"
-                return 0
-            else
-                log_error "Failed to set content_type via modetest"
-            fi
-        else
-            log_error "Could not find connector ID for $connector_name"
-        fi
-    else
-        log_error "modetest not found"
-    fi
-
-    return 1
-}
-
 # Function: Switch to Kodi with retry logic
 switch_to_kodi() {
     log_info "Switching to Kodi HDR mode..."
@@ -274,10 +219,6 @@ switch_to_kodi() {
     # Cleanup gaming processes
     # cleanup_processes "gaming"
 
-    log_info "Disabling ALLM (setting content type to Cinema)"
-    # Set content type to CINEMA (3) to disable ALLM
-    set_drm_content_type 3
-
     # Ensure on TTY1
     chvt 1 2>/dev/null || true
     
@@ -287,8 +228,6 @@ switch_to_kodi() {
     # Try to start Kodi (with retry)
     local attempts=0
     local max_attempts=2
-
-    set_drm_content_type 3
 
     while [ $attempts -lt $max_attempts ]; do
         log_info "Starting Kodi service (attempt $((attempts+1))/$max_attempts)..."
@@ -568,24 +507,200 @@ EOF
 patch_kodi_standalone_for_gbm() {
     log_info "Patching kodi-standalone for GBM support..."
 
-    if [ -f "/usr/bin/kodi-standalone" ]; then
-        cp /usr/bin/kodi-standalone /usr/bin/kodi-standalone.orig
-    fi
-
     cat > "/usr/bin/kodi-standalone" << 'EOF'
-#!/bin/sh
+#!/bin/bash
 #
-# Optimized Kodi standalone startup script
+# Optimized Kodi standalone startup script with ALLM control
 #
 
 APP="/usr/lib64/kodi/kodi-gbm"
 
-# Start PulseAudio if needed
-if command -v start-pulseaudio-x11 >/dev/null 2>&1; then
-    if ! pgrep -x pulseaudio >/dev/null 2>&1; then
-        start-pulseaudio-x11 2>/dev/null || true
+# Function: Find the active HDMI connector
+find_active_hdmi_connector() {
+    local connector
+    for connector in /sys/class/drm/card*-HDMI-*/status; do
+        if [ -f "$connector" ] && [ "$(cat "$connector")" = "connected" ]; then
+            echo "${connector%/status}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Function: Set DRM content type property
+set_drm_content_type() {
+    local content_type=$1
+    local active_connector
+
+    # Find the active HDMI connector
+    if ! active_connector=$(find_active_hdmi_connector); then
+        echo "[KODI] No active HDMI connector found" >&2
+        return 1
     fi
-fi
+
+    # Extract connector name
+    local connector_name=$(basename "$active_connector" | sed 's/card[0-9]*-//')
+
+    echo "[KODI] Setting content_type to $content_type on connector $connector_name"
+
+    if command -v modetest >/dev/null 2>&1; then
+        # Get full modetest output
+        local modetest_output=$(modetest -c 2>/dev/null)
+
+        # Find the connector ID for our HDMI connector
+        local connector_id=$(echo "$modetest_output" | grep -E "^[0-9]+.*connected.*$connector_name" | awk '{print $1}')
+
+        if [ -n "$connector_id" ]; then
+            echo "[KODI] Found connector ID: $connector_id for $connector_name"
+
+            # Set the property using the property name
+            if modetest -w "${connector_id}:content type:${content_type}" 2>/dev/null; then
+                echo "[KODI] Content type set successfully to $content_type (Cinema mode - ALLM disabled)"
+                return 0
+            else
+                echo "[KODI] Failed to set content_type via modetest" >&2
+            fi
+        else
+            echo "[KODI] Could not find connector ID for $connector_name" >&2
+        fi
+    else
+        echo "[KODI] modetest not found" >&2
+    fi
+
+    return 1
+}
+
+# Function: Verify content type is set correctly
+verify_content_type() {
+    local expected=$1
+    local active_connector
+
+    # Find the active HDMI connector
+    if ! active_connector=$(find_active_hdmi_connector); then
+        echo "[KODI] No active HDMI connector found for verification" >&2
+        return 1
+    fi
+
+    # Extract connector name
+    local connector_name=$(basename "$active_connector" | sed 's/card[0-9]*-//')
+
+    if command -v modetest >/dev/null 2>&1; then
+        # Get modetest output and find our connector
+        local modetest_output=$(modetest -c 2>/dev/null)
+
+        # Find the connector section and extract content type value
+        # Content type values: 0=Graphics, 1=Photo, 2=Cinema, 3=Game
+        local current_type=$(echo "$modetest_output" | \
+            awk "/^[0-9]+.*connected.*$connector_name/{flag=1} flag && /content type:/{print; exit}" | \
+            grep -o "content type:.*" | \
+            sed -n 's/.*content type:.*value:\([0-9]\).*/\1/p')
+
+        if [ -z "$current_type" ]; then
+            echo "[KODI] Could not read current content type value" >&2
+            return 1
+        fi
+
+        echo "[KODI] Current content type value: $current_type"
+
+        if [ "$current_type" = "$expected" ]; then
+            echo "[KODI] Content type verified successfully"
+            return 0
+        else
+            # Map numeric values to names for clarity
+            local type_names=("Graphics" "Photo" "Cinema" "Game")
+            local current_name="${type_names[$current_type]:-Unknown}"
+            local expected_name="${type_names[$expected]:-Unknown}"
+
+            echo "[KODI] Content type mismatch! Current: $current_type ($current_name), Expected: $expected ($expected_name)" >&2
+            return 1
+        fi
+    else
+        echo "[KODI] modetest not available for verification" >&2
+        return 1
+    fi
+}
+
+# Function: Set content type with verification and retry
+set_content_type_with_retry() {
+    local content_type=$1
+    local max_attempts=3
+    local verify_delay=0.2
+
+    echo "[KODI] Attempting to set and verify content type $content_type"
+
+    for attempt in $(seq 1 $max_attempts); do
+        echo "[KODI] Attempt $attempt of $max_attempts"
+
+        # Try to set the content type
+        if set_drm_content_type $content_type; then
+            # Wait a moment for the change to take effect
+            sleep $verify_delay
+
+            # Verify it was set correctly
+            if verify_content_type $content_type; then
+                echo "[KODI] Content type successfully set and verified"
+                return 0
+            else
+                echo "[KODI] Verification failed, will retry..." >&2
+            fi
+        else
+            echo "[KODI] Failed to set content type, will retry..." >&2
+        fi
+
+        # Wait before retry (except on last attempt)
+        if [ $attempt -lt $max_attempts ]; then
+            sleep 0.5
+        fi
+    done
+
+    echo "[KODI] Failed to set content type after $max_attempts attempts" >&2
+    return 1
+}
+
+# Function: Pre-launch setup
+pre_launch_setup() {
+    echo "[KODI] Performing pre-launch setup..."
+    echo "[KODI] ============================================"
+
+    # Set content type to Cinema (2) to disable ALLM
+    # Note: Content type values are: 0=Graphics, 1=Photo, 2=Cinema, 3=Game
+    if set_content_type_with_retry 2; then
+        echo "[KODI] Successfully disabled ALLM/Game Mode"
+        # Additional delay to ensure TV processes the change
+        sleep 0.5
+    else
+        echo "[KODI] WARNING: Could not disable ALLM/Game Mode - continuing anyway"
+        # Continue anyway - not fatal
+    fi
+
+    echo "[KODI] ============================================"
+
+    # Start PulseAudio if needed
+    if command -v start-pulseaudio-x11 >/dev/null 2>&1; then
+        if ! pgrep -x pulseaudio >/dev/null 2>&1; then
+            echo "[KODI] Starting PulseAudio..."
+            start-pulseaudio-x11 2>/dev/null || true
+        fi
+    fi
+}
+
+# Function: Post-exit cleanup (optional)
+post_exit_cleanup() {
+    local exit_code=$1
+    echo "[KODI] Kodi exited with code: $exit_code"
+
+    # Optionally restore content type to Game (3) or Graphics (0)
+    # Uncomment if you want to re-enable ALLM after Kodi exits
+    # echo "[KODI] Restoring content type to Game mode..."
+    # set_content_type_with_retry 3
+}
+
+# Main script
+echo "[KODI] Kodi standalone starting..."
+echo "[KODI] $(date)"
+
+# Perform pre-launch setup
+pre_launch_setup
 
 # Simple crash recovery
 LOOP=1
@@ -594,13 +709,19 @@ LASTSUCCESSFULSTART=$(date +%s)
 
 while [ $LOOP -eq 1 ]
 do
+    echo "[KODI] Launching Kodi GBM..."
     $APP "$@"
     RET=$?
     NOW=$(date +%s)
 
+    # Handle exit code
+    post_exit_cleanup $RET
+
     if [ $RET -ge 64 ] && [ $RET -le 66 ] || [ $RET -eq 0 ]; then
+        # Clean exit
         LOOP=0
     else
+        # Crash handling
         DIFF=$((NOW-LASTSUCCESSFULSTART))
         if [ $DIFF -gt 60 ]; then
             LASTSUCCESSFULSTART=$NOW
@@ -609,11 +730,18 @@ do
             CRASHCOUNT=$((CRASHCOUNT+1))
             if [ $CRASHCOUNT -ge 3 ]; then
                 LOOP=0
-                echo "Kodi crashed 3 times in ${DIFF} seconds. Giving up." >&2
+                echo "[KODI] Kodi crashed 3 times in ${DIFF} seconds. Giving up." >&2
+            else
+                echo "[KODI] Kodi crashed. Restarting (attempt $((CRASHCOUNT+1))/3)..."
+                # Re-run pre-launch setup before restart
+                sleep 1
+                pre_launch_setup
             fi
         fi
     fi
 done
+
+echo "[KODI] Kodi standalone finished"
 EOF
     chmod +x /usr/bin/kodi-standalone
 
