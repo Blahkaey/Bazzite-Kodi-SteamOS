@@ -206,68 +206,53 @@ set_drm_content_type() {
     local active_connector
 
     # Find the active HDMI connector
+    log_info "Finding the active connector"
     if ! active_connector=$(find_active_hdmi_connector); then
         log_error "No active HDMI connector found"
         return 1
     fi
 
-    # Extract connector name
-    local drm_device=$(basename "$(dirname "$active_connector")")
-    local connector_name=$(echo "$drm_device" | sed 's/card[0-9]*-//')
+    log_info "Active connector path: $active_connector"
 
-    log_info "Setting content_type to $content_type on $drm_device"
+    # Extract connector name - fix the extraction
+    # If active_connector is /sys/class/drm/card0-HDMI-A-1
+    # We want just HDMI-A-1
+    local connector_name=$(basename "$active_connector" | sed 's/card[0-9]*-//')
+
+    log_info "Setting content_type to $content_type on connector $connector_name"
 
     if command -v modetest >/dev/null 2>&1; then
         # Get full modetest output
         local modetest_output=$(modetest -c 2>/dev/null)
 
-        # Find the connector section for HDMI
-        local connector_section=$(echo "$modetest_output" | awk "/^[0-9]+.*connected.*$connector_name/{flag=1} flag && /^[0-9]+.*(connected|disconnected)/{if(flag && !/^[0-9]+.*$connector_name/)exit} flag")
-
-        # Extract connector ID
-        local connector_id=$(echo "$connector_section" | head -1 | awk '{print $1}')
+        # Find the connector ID for our HDMI connector
+        local connector_id=$(echo "$modetest_output" | grep -E "^[0-9]+.*connected.*$connector_name" | awk '{print $1}')
 
         if [ -n "$connector_id" ]; then
-            log_info "Found connector ID: $connector_id"
+            log_info "Found connector ID: $connector_id for $connector_name"
 
-            # Check if the connector has the "content type" property
-            if echo "$connector_section" | grep -q "content type:"; then
-                log_info "Found 'content type' property on connector $connector_id"
+            # Set the property using the property name
+            if modetest -w "${connector_id}:content type:${content_type}" 2>/dev/null; then
+                log_info "Content type set successfully to $content_type"
 
-                # Set the property using the property name
-                if modetest -w "${connector_id}:content type:${content_type}" 2>/dev/null; then
-                    log_info "Content type set successfully to $content_type"
-
-                    # Verify the change
-                    local new_value=$(modetest -c 2>/dev/null | grep -A40 "^${connector_id}.*connected" | grep -A2 "content type:" | grep "value:" | awk '{print $2}')
-                    if [ "$new_value" = "$content_type" ]; then
-                        log_info "Verified: content type is now $new_value"
-                        case $content_type in
-                            0) log_info "ALLM disabled: No Data" ;;
-                            1) log_info "ALLM disabled: Graphics" ;;
-                            2) log_info "ALLM disabled: Photo" ;;
-                            3) log_info "ALLM disabled: Cinema" ;;
-                            4) log_info "ALLM enabled: Game" ;;
-                        esac
-                    else
-                        log_warning "Verification failed: expected $content_type, got $new_value"
-                    fi
-
-                    return 0
+                # Verify the change
+                sleep 0.5  # Give it a moment to apply
+                local new_value=$(modetest -c 2>/dev/null | grep -A40 "^${connector_id}.*connected" | grep -A2 "content type:" | grep "value:" | awk '{print $2}')
+                if [ "$new_value" = "$content_type" ]; then
+                    log_info "Verified: content type is now $new_value"
+                    case $content_type in
+                        0) log_info "ALLM disabled: No Data" ;;
+                        1) log_info "ALLM disabled: Graphics" ;;
+                        2) log_info "ALLM disabled: Photo" ;;
+                        3) log_info "ALLM disabled: Cinema" ;;
+                        4) log_info "ALLM enabled: Game" ;;
+                    esac
                 else
-                    log_warning "Failed to set content_type via modetest"
-                    
-                    # Try with quotes around the property name since it has a space
-                    log_info "Retrying with quoted property name..."
-                    if modetest -w "${connector_id}:'content type':${content_type}" 2>/dev/null; then
-                        log_info "Content type set successfully with quoted property name"
-                        return 0
-                    fi
+                    log_warning "Verification: current value is $new_value (expected $content_type)"
                 fi
+                return 0
             else
-                log_error "Connector $connector_id does not have 'content type' property"
-                log_info "Available properties:"
-                echo "$connector_section" | grep -E "^\s+[0-9]+\s+" | sed 's/^/  /'
+                log_error "Failed to set content_type via modetest"
             fi
         else
             log_error "Could not find connector ID for $connector_name"
