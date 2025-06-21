@@ -201,7 +201,7 @@ find_active_hdmi_connector() {
 }
 
 # Function: Set DRM content type property
-set_drm_content_type() {
+set_drm_content_type_dynamic() {
     local content_type=$1
     local active_connector
 
@@ -211,30 +211,47 @@ set_drm_content_type() {
         return 1
     fi
 
-    # Extract card and connector name
+    # Extract connector name
     local drm_device=$(basename "$(dirname "$active_connector")")
-    local card_num=$(echo "$drm_device" | grep -o 'card[0-9]*' | grep -o '[0-9]*')
     local connector_name=$(echo "$drm_device" | sed 's/card[0-9]*-//')
 
     log_info "Setting content_type to $content_type on $drm_device"
 
-    # Use drm_mode tool or write directly via sysfs if available
-    # Method 1: Using modetest (if available)
     if command -v modetest >/dev/null 2>&1; then
-        # Get connector ID
-        local connector_id=$(modetest -c 2>/dev/null | grep -A1 "$connector_name" | grep -o '^[0-9]*' | head -1)
-        if [ -n "$connector_id" ]; then
-            # Set the content type property
-            modetest -w "$connector_id:content type:$content_type" 2>/dev/null || {
+        # Get full modetest output
+        local modetest_output=$(modetest -c -p 2>/dev/null)
+
+        # Find the connector section for HDMI
+        local connector_section=$(echo "$modetest_output" | awk "/^[0-9]+.*connected.*$connector_name/{flag=1} flag && /^[0-9]+.*connected|^$/{if(p)exit; p=1} flag")
+
+        # Extract connector ID
+        local connector_id=$(echo "$connector_section" | head -1 | awk '{print $1}')
+
+        # Find the property ID for "content type"
+        local property_id=$(echo "$connector_section" | grep -E "^\s+[0-9]+\s+content type:" | awk '{print $1}')
+
+        if [ -n "$connector_id" ] && [ -n "$property_id" ]; then
+            log_info "Found connector ID: $connector_id, property ID: $property_id"
+
+            # Set the property
+            if modetest -w "${connector_id}:${property_id}:${content_type}" 2>/dev/null; then
+                log_info "Content type set successfully to $content_type"
+
+                # Verify the change
+                local new_value=$(modetest -c 2>/dev/null | grep -A20 "^${connector_id}.*connected" | grep "content type:" -A1 | grep "value:" | awk '{print $2}')
+                if [ "$new_value" = "$content_type" ]; then
+                    log_info "Verified: content type is now $new_value"
+                fi
+
+                return 0
+            else
                 log_warning "Failed to set content_type via modetest"
-                return 1
-            }
-            log_info "Content type set successfully via modetest"
-            return 0
+            fi
+        else
+            log_error "Could not find connector ID or property ID"
         fi
     fi
 
-    log_warning "No suitable method found to set content_type property"
     return 1
 }
 
