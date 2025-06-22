@@ -175,6 +175,9 @@ cleanup_processes() {
             pkill -TERM -f "gamescope" 2>/dev/null || true
             # Short grace period
             sleep 0.2
+
+            systemctl stop plugin_loader.service
+
             # Force kill if needed
             if pgrep -f "steam|gamescope" >/dev/null; then
                 log_info "Force killing gaming processes"
@@ -305,6 +308,9 @@ switch_to_gamemode() {
 
     # Cleanup Kodi processes
     cleanup_processes "kodi"
+
+    systemctl start plugin_loader.service
+    sleep 0.1
 
     # Try to start SDDM (with retry)
     local attempts=0
