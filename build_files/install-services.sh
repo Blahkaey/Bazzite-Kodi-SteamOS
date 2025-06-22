@@ -171,19 +171,19 @@ cleanup_processes() {
             ;;
         gaming)
             # Terminate Steam and Gamescope
-            pkill -TERM -f "steam" 2>/dev/null || true
-            pkill -TERM -f "gamescope" 2>/dev/null || true
+            #pkill -TERM -f "steam" 2>/dev/null || true
+            #pkill -TERM -f "gamescope" 2>/dev/null || true
             # Short grace period
-            sleep 0.2
+            #sleep 0.2
 
             systemctl stop plugin_loader.service
 
             # Force kill if needed
-            if pgrep -f "steam|gamescope" >/dev/null; then
-                log_info "Force killing gaming processes"
-                pkill -KILL -f "steam" 2>/dev/null || true
+            #if pgrep -f "steam|gamescope" >/dev/null; then
+            #    log_info "Force killing gaming processes"
+            #    pkill -KILL -f "steam" 2>/dev/null || true
                 pkill -KILL -f "gamescope" 2>/dev/null || true
-            fi
+            #fi
             ;;
     esac
 }
@@ -220,7 +220,7 @@ switch_to_kodi() {
     fi
 
     # Cleanup gaming processes
-    # cleanup_processes "gaming"
+    cleanup_processes "gaming"
 
     # Ensure on TTY1
     chvt 1 2>/dev/null || true
