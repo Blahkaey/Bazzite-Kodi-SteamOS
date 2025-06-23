@@ -3,7 +3,6 @@ set -euo pipefail
 
 echo "[INFO] Installing Kodi build dependencies..."
 
-# DNF optimization
 DNF_CMD="dnf -y --setopt=fastestmirror=1 --setopt=max_parallel_downloads=10"
 
 
