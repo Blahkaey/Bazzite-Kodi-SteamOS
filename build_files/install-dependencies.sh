@@ -254,6 +254,9 @@ build_libva() {
 
     log_info "Building libva (this may take a few minutes)..."
 
+    # Disable ccache for meson builds to avoid conflicts
+    export CCACHE_DISABLE=1
+
     # Create temporary build directory
     local build_dir="/tmp/libva-build"
     rm -rf "$build_dir"
@@ -295,6 +298,9 @@ build_libva() {
     # Cleanup
     cd /
     rm -rf "$build_dir"
+
+    # Re-enable ccache
+    unset CCACHE_DISABLE
 
     log_success "libva built and installed successfully"
     return 0
