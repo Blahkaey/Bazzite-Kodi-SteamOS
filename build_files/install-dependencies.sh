@@ -2,7 +2,146 @@
 set -euo pipefail
 
 source "/ctx/utility.sh"
-PACKAGE_CONFIG="/ctx/package-lists.conf"
+
+# Constants
+readonly PACKAGE_CONFIG="/ctx/package-lists.conf"
+readonly TEMP_DIR="/tmp/kodi-deps-$$"
+readonly FEDORA_41_REPO="fedora-41"
+readonly TERRA_MESA_REPO="terra-mesa"
+readonly FEDORA_41_REPO_FILE="${TEMP_DIR}/fedora-41.repo"
+
+# Repository URLs and keys
+readonly FEDORA_41_URL="https://download.fedoraproject.org/pub/fedora/linux/releases/41/Everything/x86_64/os/"
+readonly FEDORA_GPG_KEY="https://getfedora.org/static/fedora.gpg"
+
+# Track repositories we've added/modified
+declare -a ADDED_REPOS=()
+declare -a ENABLED_REPOS=()
+
+# Cleanup function
+cleanup() {
+    local exit_code=$?
+
+    log_info "Running cleanup..."
+
+    # Remove temp directory
+    if [ -d "$TEMP_DIR" ]; then
+        log_debug "Removing temporary directory: $TEMP_DIR"
+        rm -rf "$TEMP_DIR"
+    fi
+
+    # Disable any repos we enabled
+    for repo in "${ENABLED_REPOS[@]}"; do
+        log_debug "Disabling repository: $repo"
+        dnf5 config-manager setopt "${repo}.enabled=0" 2>/dev/null || true
+    done
+
+    # Remove any repos we added
+    for repo in "${ADDED_REPOS[@]}"; do
+        log_debug "Removing repository: $repo"
+        dnf5 config-manager --remove-repo "$repo" 2>/dev/null || true
+    done
+
+    # Remove any other temp files
+    rm -f /tmp/libva-build 2>/dev/null || true
+
+    log_info "Cleanup completed"
+    exit $exit_code
+}
+
+# Set up cleanup trap
+trap cleanup EXIT INT TERM
+
+# Repository management functions
+repo_exists() {
+    local repo_name="$1"
+    dnf5 repolist --repo "$repo_name" 2>/dev/null | grep -q "$repo_name"
+}
+
+repo_is_enabled() {
+    local repo_name="$1"
+    dnf5 repolist --enabled --repo "$repo_name" 2>/dev/null | grep -q "$repo_name"
+}
+
+enable_repo() {
+    local repo_name="$1"
+
+    if ! repo_exists "$repo_name"; then
+        log_error "Repository $repo_name does not exist"
+        return 1
+    fi
+
+    if repo_is_enabled "$repo_name"; then
+        log_debug "Repository $repo_name already enabled"
+        return 0
+    fi
+
+    log_info "Enabling repository: $repo_name"
+    if dnf5 config-manager setopt "${repo_name}.enabled=1"; then
+        ENABLED_REPOS+=("$repo_name")
+        return 0
+    else
+        log_error "Failed to enable repository: $repo_name"
+        return 1
+    fi
+}
+
+disable_repo() {
+    local repo_name="$1"
+
+    if ! repo_exists "$repo_name"; then
+        log_debug "Repository $repo_name does not exist, skipping disable"
+        return 0
+    fi
+
+    log_info "Disabling repository: $repo_name"
+    dnf5 config-manager setopt "${repo_name}.enabled=0" || true
+
+    # Remove from enabled list if present
+    ENABLED_REPOS=("${ENABLED_REPOS[@]/$repo_name/}")
+}
+
+add_repo() {
+    local repo_name="$1"
+    local repo_file="$2"
+
+    if repo_exists "$repo_name"; then
+        log_info "Repository $repo_name already exists"
+        return 0
+    fi
+
+    log_info "Adding repository: $repo_name"
+    if dnf5 config-manager addrepo --from-repofile="$repo_file"; then
+        ADDED_REPOS+=("$repo_name")
+        log_success "Repository $repo_name added"
+        return 0
+    else
+        log_error "Failed to add repository: $repo_name"
+        return 1
+    fi
+}
+
+create_fedora41_repo() {
+    log_info "Creating Fedora 41 repository configuration..."
+
+    cat > "$FEDORA_41_REPO_FILE" << EOF
+[${FEDORA_41_REPO}]
+name=Fedora 41 - x86_64
+baseurl=${FEDORA_41_URL}
+enabled=1
+gpgcheck=1
+gpgkey=${FEDORA_GPG_KEY}
+priority=10
+EOF
+
+    add_repo "$FEDORA_41_REPO" "$FEDORA_41_REPO_FILE"
+}
+
+# Package installation functions
+refresh_dnf_metadata() {
+    log_info "Refreshing DNF metadata..."
+    dnf5 makecache --refresh || log_warning "Failed to refresh DNF cache"
+}
 
 install_packages() {
     local category="$1"
@@ -22,23 +161,6 @@ install_packages() {
     local pkg_array=($packages)
     local failed_packages=()
     local installed_packages=()
-
-    # Special handling for GBM_DEPS on Bazzite
-    if [ "$category" = "GBM_DEPS" ]; then
-        log_info "Attempting to install mesa devel packages from terra-mesa..."
-
-        # Try to install mesa devel packages from COPR
-        for pkg in mesa-libgbm-devel mesa-libEGL-devel; do
-            if dnf5 install -y "$pkg" --repo "terra-mesa" >/dev/null 2>&1; then
-                log_success "Installed $pkg from terra-mesa"
-                installed_packages+=("$pkg")
-            else
-                log_warning "Could not install $pkg - will check if headers exist elsewhere"
-            fi
-
-        dnf5 config-manager setopt terra-mesa.enabled=0
-        done
-    fi
 
     # Batch install first (faster)
     if dnf5 install -y ${pkg_array[@]} >/dev/null 2>&1; then
@@ -77,37 +199,58 @@ install_packages() {
     return 0
 }
 
-add_java11() {
-    # Create a temporary repo file for Fedora 41
-    cat > /tmp/fedora-41.repo << 'EOF'
-[fedora-41]
-name=Fedora 41 - x86_64
-baseurl=https://download.fedoraproject.org/pub/fedora/linux/releases/41/Everything/x86_64/os/
-enabled=1
-gpgcheck=1
-gpgkey=https://getfedora.org/static/fedora.gpg
-priority=10
-EOF
+install_gbm_packages() {
+    log_info "Installing GBM packages with special handling..."
 
-    dnf5 config-manager addrepo --from-repofile=/tmp/fedora-41.repo
+    # Enable terra-mesa for mesa devel packages
+    enable_repo "$TERRA_MESA_REPO" || log_warning "Could not enable $TERRA_MESA_REPO"
 
-    log_success "Fedora 41 repository added"
+    # Try to install mesa devel packages from terra-mesa
+    local mesa_packages=("mesa-libgbm-devel" "mesa-libEGL-devel")
+    local mesa_installed=0
 
-    if !dnf5 install -y java-11-openjdk-headless --repo fedora-41 >/dev/null 2>&1; then
-        dnf5 search java-11-openjdk-headless
-        die "Failed to java-11-openjdk-headless"
+    for pkg in "${mesa_packages[@]}"; do
+        if dnf5 install -y "$pkg" --repo "$TERRA_MESA_REPO" >/dev/null 2>&1; then
+            log_success "Installed $pkg from $TERRA_MESA_REPO"
+            ((mesa_installed++))
+        else
+            log_warning "Could not install $pkg - will check if headers exist elsewhere"
+        fi
+    done
+
+    # Disable terra-mesa after use
+    disable_repo "$TERRA_MESA_REPO"
+
+    # Install remaining GBM packages
+    install_packages "GBM_DEPS" true
+}
+
+install_java11() {
+    log_info "Installing Java 11 from Fedora 41 repository..."
+
+    # Add Fedora 41 repo
+    create_fedora41_repo
+
+    # Install java-11-openjdk-headless
+    if ! dnf5 install -y java-11-openjdk-headless --repo "$FEDORA_41_REPO" >/dev/null 2>&1; then
+        log_error "Failed to install java-11-openjdk-headless"
+        dnf5 search java-11-openjdk-headless || true
+        return 1
     fi
 
-    dnf5 config-manager setopt fedora-41.enabled=0
     log_success "Successfully installed java-11-openjdk-headless"
-    log_success "Fedora 41 repository disabled"
+
+    # Disable the repo after use
+    disable_repo "$FEDORA_41_REPO"
+
+    return 0
 }
 
 build_libva() {
     log_info "Building libva (Video Acceleration API library)..."
 
-    local build_dir="/tmp/libva-build"
-    mkdir "$build_dir"
+    local build_dir="${TEMP_DIR}/libva-build"
+    mkdir -p "$build_dir"
 
     # Clone the repo
     if ! git clone --depth 1 https://github.com/intel/libva.git "$build_dir"; then
@@ -138,34 +281,76 @@ build_libva() {
     # Update the system library cache
     ldconfig
 
-    # Clean up after ourselves
-    cleanup_dir "$build_dir"
     log_success "libva built and installed successfully"
+
+    # Return to original directory
+    cd - >/dev/null
 }
 
+validate_installation() {
+    log_info "Validating critical packages..."
+
+    local critical_packages=(
+        "cmake"
+        "gcc"
+        "gcc-c++"
+        "mesa-libGLES"
+        "mesa-libgbm"
+        "libdrm"
+    )
+
+    local missing=()
+
+    for pkg in "${critical_packages[@]}"; do
+        if ! rpm -q "$pkg" >/dev/null 2>&1; then
+            missing+=("$pkg")
+        fi
+    done
+
+    if [ ${#missing[@]} -gt 0 ]; then
+        log_error "Critical packages are missing:"
+        printf '%s\n' "${missing[@]}" | sed 's/^/  - /'
+        return 1
+    fi
+
+    log_success "All critical packages are installed"
+    return 0
+}
 
 # Main execution
 main() {
     log_subsection "Package Installation for Kodi HDR/GBM Build"
+
+    # Create temp directory
+    mkdir -p "$TEMP_DIR"
 
     # Check if package config exists
     if [ ! -f "$PACKAGE_CONFIG" ]; then
         die "Package configuration not found: $PACKAGE_CONFIG"
     fi
 
-    dnf5 config-manager setopt "terra-mesa".enabled=1
+    # Refresh metadata once at the start
+    refresh_dnf_metadata
 
     # Install java 11 headless using fedora 41 repo
-    add_java11
+    install_java11 || die "Failed to install Java 11"
 
     # Install packages by category
     install_packages "ESSENTIAL" true || die "Failed to install essential packages"
     install_packages "CORE_DEPS" true || die "Failed to install core dependencies"
-    install_packages "GBM_DEPS" true || die "Failed to install GBM dependencies"
+    install_gbm_packages || die "Failed to install GBM dependencies"
     install_packages "GRAPHICS" true || die "Failed to install graphics libraries"
-    build_libva
-    install_packages "OPTIONAL" false  # Optional, don't fail
 
+    # Build libva
+    build_libva
+
+    # Install optional packages (don't fail on these)
+    install_packages "OPTIONAL" false
+
+    # Validate installation
+    validate_installation || die "Installation validation failed"
+
+    log_success "All dependencies installed successfully"
 }
 
 # Call main with all arguments
