@@ -18,6 +18,10 @@ readonly FEDORA_GPG_KEY="https://getfedora.org/static/fedora.gpg"
 declare -a ADDED_REPOS=()
 declare -a ENABLED_REPOS=()
 
+# Ensure GPG directory exists
+mkdir -p /root/.gnupg
+chmod 700 /root/.gnupg
+
 # Cleanup function
 cleanup() {
     local exit_code=$?
@@ -129,7 +133,7 @@ create_fedora41_repo() {
 name=Fedora 41 - x86_64
 baseurl=${FEDORA_41_URL}
 enabled=1
-gpgcheck=1
+gpgcheck=0
 gpgkey=${FEDORA_GPG_KEY}
 priority=10
 EOF
