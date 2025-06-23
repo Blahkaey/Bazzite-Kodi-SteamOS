@@ -61,8 +61,10 @@ COPY --from=builder /usr/lib64/kodi /usr/lib64/kodi
 COPY --from=builder /usr/bin/kodi* /usr/bin/
 COPY --from=builder /usr/share/kodi /usr/share/kodi
 COPY --from=builder /usr/share/applications/*kodi* /usr/share/applications/
-COPY --from=builder /usr/share/icons/hicolor/*/apps/kodi* /usr/share/icons/hicolor/
 COPY --from=builder /usr/share/xsessions/*kodi* /usr/share/xsessions/
+COPY --from=builder /usr/share/icons/hicolor/*/apps/kodi* /usr/share/icons/hicolor/
+COPY --from=builder /usr/share/metainfo/*kodi* /usr/share/metainfo/
+COPY --from=builder /usr/lib/firewalld/services/*kodi* /usr/lib/firewalld/services/
 
 # Copy runtime dependencies list and verification script
 COPY --from=builder /runtime-deps.txt /
