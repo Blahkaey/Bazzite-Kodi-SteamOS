@@ -3,6 +3,9 @@ set -euo pipefail
 
 source "/ctx/utility.sh"
 
+# Add a trap to catch errors
+trap 'log_error "Error occurred at line $LINENO in install-kodi.sh"; exit 1' ERR
+
 # =============================================================================
 # CONFIGURATION & CONSTANTS
 # =============================================================================
@@ -12,15 +15,17 @@ readonly KODI_VERSION="Omega"
 readonly KODI_REPO="https://github.com/xbmc/xbmc"
 readonly KODI_PREFIX="/usr"
 
-# Build directories
+# Build directories - NOT readonly since we may change SOURCE_DIR
 BUILD_DIR="/tmp/kodi-build"
 SOURCE_DIR="/tmp/kodi-source"
 
 # Cache directories (leveraging container cache mount)
 readonly CACHE_BASE="/var/cache/kodi"
 readonly SOURCE_CACHE_DIR="${CACHE_BASE}/sources"
-CCACHE_DIR="${CACHE_BASE}/ccache"
+CCACHE_DIR="${CACHE_BASE}/ccache"  # Not readonly, may be modified
 readonly BUILD_STATE_FILE="${CACHE_BASE}/build-state"
+readonly INSTALL_CACHE_DIR="${CACHE_BASE}/installed"
+readonly INSTALL_MANIFEST="${CACHE_BASE}/install-manifest.txt"
 
 # Build configuration
 declare -A BUILD_CONFIG=(
@@ -45,7 +50,7 @@ declare -A BUILD_CONFIG=(
 
 init_cache_directories() {
     log_info "Initializing cache directories..."
-    mkdir -p "$SOURCE_CACHE_DIR" "$CCACHE_DIR" "$(dirname "$BUILD_STATE_FILE")"
+    mkdir -p "$SOURCE_CACHE_DIR" "$CCACHE_DIR" "$INSTALL_CACHE_DIR" "$(dirname "$BUILD_STATE_FILE")"
     log_success "Cache directories initialized"
 }
 
@@ -55,6 +60,8 @@ setup_ccache() {
         export CCACHE_COMPRESS=1
         export CCACHE_MAXSIZE="2G"
 
+        # Don't override CC/CXX - let CMake handle it
+        # Just ensure ccache is configured
         ccache --set-config=cache_dir="$CCACHE_DIR"
         ccache --zero-stats >/dev/null 2>&1
 
@@ -69,19 +76,69 @@ save_build_state() {
     echo "$(date -u +%Y%m%d_%H%M%S)|${KODI_VERSION}|${state}" > "$BUILD_STATE_FILE"
 }
 
+# =============================================================================
+# INSTALLATION CACHE MANAGEMENT
+# =============================================================================
+
+save_installed_files() {
+    log_info "Caching installed files..."
+
+    mkdir -p "$INSTALL_CACHE_DIR"
+
+    # Save list of installed files
+    find /usr/lib64/kodi /usr/bin/kodi* /usr/share/kodi -type f 2>/dev/null > "$INSTALL_MANIFEST" || true
+
+    # Create a tarball of installed files
+    if [[ -s "$INSTALL_MANIFEST" ]]; then
+        tar -czf "${INSTALL_CACHE_DIR}/kodi-install.tar.gz" \
+            --files-from="$INSTALL_MANIFEST" 2>/dev/null || {
+            log_warning "Failed to create install cache"
+            return 1
+        }
+        log_success "Installed files cached"
+    else
+        log_warning "No files found to cache"
+        return 1
+    fi
+}
+
+restore_installed_files() {
+    log_info "Checking for cached installation..."
+
+    if [[ -f "${INSTALL_CACHE_DIR}/kodi-install.tar.gz" ]]; then
+        log_info "Restoring cached installation..."
+
+        # Extract the cached files
+        if tar -xzf "${INSTALL_CACHE_DIR}/kodi-install.tar.gz" -C / 2>/dev/null; then
+            # Update library cache
+            ldconfig
+            log_success "Cached installation restored"
+            return 0
+        else
+            log_warning "Failed to restore cached installation"
+            rm -f "${INSTALL_CACHE_DIR}/kodi-install.tar.gz"
+            return 1
+        fi
+    fi
+
+    return 1
+}
+
 check_build_state() {
     if [[ -f "$BUILD_STATE_FILE" ]]; then
         local last_state=$(tail -1 "$BUILD_STATE_FILE" 2>/dev/null | cut -d'|' -f3)
         local last_version=$(tail -1 "$BUILD_STATE_FILE" 2>/dev/null | cut -d'|' -f2)
 
         if [[ "$last_state" == "completed" ]] && [[ "$last_version" == "$KODI_VERSION" ]]; then
-            # Also check if the binary actually exists
-            if [[ -x "/usr/lib64/kodi/kodi-gbm" ]]; then
-                log_info "Previous successful build detected and binary exists"
-                return 0
-            else
-                log_warning "Build state shows completed but binary is missing"
+            # Try to restore cached installation
+            if restore_installed_files; then
+                # Verify the binary exists after restore
+                if [[ -x "/usr/lib64/kodi/kodi-gbm" ]]; then
+                    log_info "Previous successful build restored from cache"
+                    return 0
+                fi
             fi
+            log_warning "Build state shows completed but could not restore installation"
         fi
     fi
     return 1
@@ -171,7 +228,7 @@ verify_dependencies() {
         fi
     done
 
-    # Check for critical libraries
+    # Check for critical libraries using pkg-config
     local required_libs=("libva" "gbm" "egl" "glesv2")
 
     for lib in "${required_libs[@]}"; do
@@ -362,6 +419,9 @@ install_kodi() {
 
     # Update library cache
     ldconfig
+
+    # Save installed files to cache
+    save_installed_files
 
     save_build_state "completed"
     log_success "Kodi installed successfully"

@@ -79,12 +79,6 @@ debug_cache_info() {
             log_debug "Recent install states:"
             tail -10 /var/cache/dependencies/install-state 2>/dev/null | sed 's/^/  /'
         fi
-
-        # LibVA cache info
-        if [[ -d "/var/cache/dependencies/libva" ]]; then
-            log_debug "LibVA cache contents:"
-            ls -la /var/cache/dependencies/libva/ 2>/dev/null | head -5 | sed 's/^/  /'
-        fi
     fi
 
     # Kodi cache info
@@ -95,14 +89,24 @@ debug_cache_info() {
         # Show build state
         if [[ -f "/var/cache/kodi/build-state" ]]; then
             log_debug "Kodi build state:"
-            tail -5 /var/cache/kodi/build-state 2>/dev/null | sed 's/^/  /'
+            cat /var/cache/kodi/build-state 2>/dev/null | sed 's/^/  /'
+        fi
+
+        # Show install cache
+        if [[ -d "/var/cache/kodi/installed" ]]; then
+            log_debug "Install cache:"
+            ls -lh /var/cache/kodi/installed/ 2>/dev/null | sed 's/^/  /'
         fi
     fi
 
     # Ccache stats if available
-    if command -v ccache >/dev/null 2>&1 && [[ -d "/var/cache/kodi/ccache" ]]; then
-        log_debug "Ccache stats:"
-        CCACHE_DIR="/var/cache/kodi/ccache" ccache -s 2>/dev/null | grep -E "cache directory|cache size|hits|misses" | sed 's/^/  /'
+    if command -v ccache >/dev/null 2>&1; then
+        # Use the CCACHE_DIR if set, otherwise use default
+        local ccache_dir="${CCACHE_DIR:-/var/cache/kodi/ccache}"
+        if [[ -d "$ccache_dir" ]]; then
+            log_debug "Ccache stats:"
+            CCACHE_DIR="$ccache_dir" ccache -s 2>/dev/null | grep -E "cache directory|cache size|hits|misses" | sed 's/^/  /'
+        fi
     fi
 
     log_debug "===================="
