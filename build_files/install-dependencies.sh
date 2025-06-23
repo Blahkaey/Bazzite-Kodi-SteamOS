@@ -10,11 +10,6 @@ source "/ctx/utility.sh"
 # DNF5 command with optimizations
 readonly DNF5_CMD="dnf5 --setopt=fastestmirror=1 --setopt=max_parallel_downloads=10 --setopt=install_weak_deps=0 --nogpgcheck"
 
-# Cache directories
-readonly CACHE_BASE="/var/cache/dependencies"
-readonly LIBVA_CACHE="${CACHE_BASE}/libva"
-readonly INSTALL_STATE="${CACHE_BASE}/install-state"
-
 # Repository configurations
 readonly FEDORA_41_REPO="fedora-41"
 readonly FEDORA_41_URL="https://download.fedoraproject.org/pub/fedora/linux/releases/41/Everything/x86_64/os/"
@@ -32,29 +27,6 @@ declare -A PACKAGE_GROUPS=(
 
     [OPTIONAL]="libbluray-devel libcec-devel libnfs-devel libplist-devel shairplay-devel flatbuffers flatbuffers-devel fmt-devel fstrcmp-devel spdlog-devel lirc-devel"
 )
-
-# =============================================================================
-# CACHE & STATE MANAGEMENT
-# =============================================================================
-
-init_cache() {
-    log_info "Initializing dependency cache..."
-    mkdir -p "$CACHE_BASE" "$LIBVA_CACHE" "$(dirname "$INSTALL_STATE")"
-}
-
-save_install_state() {
-    local group="$1"
-    local status="$2"
-    echo "$(date -u +%Y%m%d_%H%M%S)|${group}|${status}" >> "$INSTALL_STATE"
-}
-
-check_install_state() {
-    local group="$1"
-    if [[ -f "$INSTALL_STATE" ]] && grep -q "|${group}|success" "$INSTALL_STATE"; then
-        return 0
-    fi
-    return 1
-}
 
 # =============================================================================
 # DNF OPTIMIZATION
@@ -152,12 +124,6 @@ install_package_group() {
     local group_name="$1"
     local required="${2:-true}"
 
-    # Check if already installed
-    if check_install_state "$group_name"; then
-        log_info "Package group '$group_name' already installed, skipping"
-        return 0
-    fi
-
     # Get packages for this group
     local packages="${PACKAGE_GROUPS[$group_name]:-}"
     if [[ -z "$packages" ]]; then
@@ -180,7 +146,6 @@ install_package_group() {
 
     if [[ ${#to_install[@]} -eq 0 ]]; then
         log_success "All $group_name packages already installed"
-        save_install_state "$group_name" "success"
         return 0
     fi
 
@@ -190,7 +155,6 @@ install_package_group() {
     # Note: --setopt=strict=0 allows some packages to fail in a group
     if $DNF5_CMD install -y --setopt=strict=0 "${to_install[@]}"; then
         log_success "Successfully installed $group_name packages"
-        save_install_state "$group_name" "success"
         return 0
     fi
 
@@ -213,7 +177,6 @@ install_package_group() {
         fi
     else
         log_warning "Some optional packages in $group_name may have failed"
-        save_install_state "$group_name" "partial"
     fi
 
     return 0
@@ -281,7 +244,7 @@ check_libva_installed() {
     return 1
 }
 
-build_libva_cached() {
+build_libva() {
     log_info "Building libva from source..."
 
     # Check if already installed with pkg-config
@@ -289,48 +252,18 @@ build_libva_cached() {
         return 0
     fi
 
-    # Use a more persistent cache location
-    local libva_install_marker="${LIBVA_CACHE}/installed-$(date +%Y%m)"
-
-    # Check if we have a recent install
-    if [[ -f "$libva_install_marker" ]]; then
-        log_success "libva already installed this month"
-        return 0
-    fi
-
-    # If libva source exists and is recent, just install
-    if [[ -d "${LIBVA_CACHE}/build" ]] && [[ -f "${LIBVA_CACHE}/.git/config" ]]; then
-        log_info "Found cached libva build, installing..."
-        cd "$LIBVA_CACHE"
-
-        # Try to install from existing build
-        if ninja -C build install >/dev/null 2>&1; then
-            ldconfig
-            touch "$libva_install_marker"
-            log_success "Installed libva from cache"
-            return 0
-        else
-            log_info "Cached build unusable, rebuilding..."
-        fi
-    fi
-
-    # Fresh build
     log_info "Building libva (this may take a few minutes)..."
 
-    # Prepare directory
-    rm -rf "${LIBVA_CACHE}/build"
-    mkdir -p "$LIBVA_CACHE"
-    cd "$LIBVA_CACHE"
+    # Create temporary build directory
+    local build_dir="/tmp/libva-build"
+    rm -rf "$build_dir"
+    mkdir -p "$build_dir"
+    cd "$build_dir"
 
-    # Clone or update repository
-    if [[ -d ".git" ]]; then
-        git pull --depth=1 >/dev/null 2>&1 || true
-    else
-        rm -rf "$LIBVA_CACHE"/*
-        if ! git clone --depth=1 https://github.com/intel/libva.git . >/dev/null 2>&1; then
-            log_error "Failed to clone libva repository"
-            return 1
-        fi
+    # Clone repository
+    if ! git clone --depth=1 https://github.com/intel/libva.git . >/dev/null 2>&1; then
+        log_error "Failed to clone libva repository"
+        return 1
     fi
 
     # Configure build
@@ -359,8 +292,9 @@ build_libva_cached() {
     # Update library cache
     ldconfig
 
-    # Mark as installed
-    touch "$libva_install_marker"
+    # Cleanup
+    cd /
+    rm -rf "$build_dir"
 
     log_success "libva built and installed successfully"
     return 0
@@ -441,7 +375,6 @@ main() {
     log_section "Installing Kodi Build Dependencies"
 
     # Initialize
-    init_cache
     configure_dnf_performance
 
     # Install packages by group
@@ -453,7 +386,7 @@ main() {
     install_package_group "GRAPHICS" true || die "Failed to install graphics libraries"
 
     # Build libva if needed
-    build_libva_cached || die "Failed to build/install libva"
+    build_libva || die "Failed to build/install libva"
 
     # Install optional packages (don't fail on these)
     install_package_group "OPTIONAL" false
