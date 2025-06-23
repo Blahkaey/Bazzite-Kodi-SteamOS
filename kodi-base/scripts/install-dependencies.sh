@@ -20,7 +20,7 @@ EOF
 $DNF_CMD makecache --repo="fedora-41"
 
 
-$DNF_CMD install -y java-11-openjdk-headless --repo "$FEDORA_41_REPO"
+$DNF_CMD install -y java-11-openjdk-headless --repo "fedora-41"
 
 rm -f "/etc/yum.repos.d/fedora-41.repo"
 
