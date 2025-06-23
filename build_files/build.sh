@@ -5,7 +5,7 @@ source "/ctx/utility.sh"
 
 # Main build process
 main() {
-    log_section "Kodi HDR Build Process"
+    log_section "Kodi Build Process"
 
     # Execute build stages with bash explicitly
     run_stage "Installing dependencies" "/bin/bash /ctx/install-dependencies.sh"
@@ -14,7 +14,7 @@ main() {
 
 
     log_success "Bazzite-Kodi-SteamOS build completed successfully!"
-    log_section "Build Complete"
+    log_section "Image build Complete"
 }
 
 run_stage() {
