@@ -153,7 +153,7 @@ install_package_group() {
 
     # Try batch installation
     # Note: --setopt=strict=0 allows some packages to fail in a group
-    if $DNF5_CMD install -y --setopt=strict=0 "${to_install[@]}"; then
+    if $DNF5_CMD install -y --setopt=strict=0 "${to_install[@]}" >/dev/null 2>&1; then
         log_success "Successfully installed $group_name packages"
         return 0
     fi
@@ -189,7 +189,7 @@ install_special_packages() {
     if ! rpm -q java-11-openjdk-headless &>/dev/null; then
         add_temp_repo "$FEDORA_41_REPO" "$FEDORA_41_URL"
 
-        if $DNF5_CMD install -y java-11-openjdk-headless --repo "$FEDORA_41_REPO"; then
+        if $DNF5_CMD install -y java-11-openjdk-headless --repo "$FEDORA_41_REPO" >/dev/null 2>&1; then
             log_success "Installed java-11-openjdk-headless"
         else
             log_error "Failed to install java-11-openjdk-headless"
@@ -208,7 +208,7 @@ install_special_packages() {
     local mesa_packages=("mesa-libgbm-devel" "mesa-libEGL-devel")
     for pkg in "${mesa_packages[@]}"; do
         if ! rpm -q "$pkg" &>/dev/null; then
-            if $DNF5_CMD install -y "$pkg" --repo "$TERRA_MESA_REPO"; then
+            if $DNF5_CMD install -y "$pkg" --repo "$TERRA_MESA_REPO" >/dev/null 2>&1; then
                 log_success "Installed $pkg from $TERRA_MESA_REPO"
             else
                 log_warning "Could not install $pkg"
