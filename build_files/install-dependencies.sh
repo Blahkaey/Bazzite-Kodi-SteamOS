@@ -233,14 +233,13 @@ install_java11() {
 
     # Refresh metadata for the new repository
     log_info "Refreshing metadata for Fedora 41 repository..."
-    dnf5 makecache --repo "$FEDORA_41_REPO" >/dev/null 2>&1 || log_warning "Failed to refresh Fedora 41 cache"
+    dnf5 makecache --repo "$FEDORA_41_REPO" || log_warning "Failed to refresh Fedora 41 cache"
 
-    # Try to install with error capture
-    local install_output
-    if ! install_output=$(dnf5 install -y java-11-openjdk-headless --repo "$FEDORA_41_REPO" 2>&1); then
+    # Install java-11-openjdk-headless (show output for debugging)
+    if ! dnf5 install -y java-11-openjdk-headless --repo "$FEDORA_41_REPO"; then
         log_error "Failed to install java-11-openjdk-headless"
-        log_error "Installation output: $install_output"
-        # Show available packages
+        # Try to understand why it failed
+        log_info "Checking if package is available..."
         dnf5 search java-11-openjdk-headless --repo "$FEDORA_41_REPO" || true
         return 1
     fi
