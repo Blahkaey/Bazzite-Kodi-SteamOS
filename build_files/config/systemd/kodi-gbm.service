@@ -7,7 +7,6 @@ Conflicts=getty@tty1.service sddm.service
 [Service]
 User=kodi
 Group=kodi
-SupplementaryGroups=audio video render input optical
 PAMName=login
 TTYPath=/dev/tty1
 

@@ -41,9 +41,6 @@ setup_kodi_system_files() {
 
     # Create kodi user and groups
     systemd-sysusers
-
-    # Add kodi user to required groups
-    usermod -a -G audio,video,render,input,optical kodi 2>/dev/null || true
     
     # Disable password expiry for kodi user
     chage -E -1 kodi
