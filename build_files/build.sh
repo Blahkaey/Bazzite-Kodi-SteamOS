@@ -46,6 +46,8 @@ install_kodi_dependencies() {
 main() {
     log_section "Bazzite-Kodi-SteamOS Build Process"
 
+    ls /tmp
+
     # Install Kodi dependencies first
     install_kodi_dependencies
 
