@@ -34,10 +34,10 @@ RUN echo "Installing Kodi runtime dependencies..." && \
     done && \
     if [ -n "$missing_deps" ]; then \
         echo "Installing missing dependencies:$missing_deps" && \
-        dnf -y install $missing_deps || \
+        dnf -y --nogpgcheck install $missing_deps || \
         { echo "Failed to install some dependencies, attempting individually..."; \
           for pkg in $missing_deps; do \
-            dnf -y install "$pkg" || echo "Warning: Could not install $pkg"; \
+            dnf -y --nogpgcheck install "$pkg" || echo "Warning: Could not install $pkg"; \
           done; }; \
     else \
         echo "All dependencies already installed!"; \
