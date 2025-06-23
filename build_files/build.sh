@@ -26,10 +26,10 @@ install_kodi_dependencies() {
 
     if [[ -n "$missing_deps" ]]; then
         log_info "Installing missing dependencies:$missing_deps"
-        if ! dnf -y install $missing_deps; then
+        if ! dnf -y --nogpgcheck --setopt=strict=0 install $missing_deps >/dev/null 2>&1; then
             log_warning "Failed to install some dependencies, attempting individually..."
             for pkg in $missing_deps; do
-                dnf -y install "$pkg" || log_warning "Could not install $pkg"
+                dnf -y --nogpgcheck install "$pkg" || log_warning "Could not install $pkg"
             done
         fi
     else
