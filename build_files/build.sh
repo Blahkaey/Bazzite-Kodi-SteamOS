@@ -51,6 +51,8 @@ main() {
     # Install Kodi dependencies first
     install_kodi_dependencies
 
+    dnf5 -y install inotify-tools drm-utils
+
     # Install services
     run_stage "Setting up services" "/bin/bash /ctx/install-services.sh"
 
