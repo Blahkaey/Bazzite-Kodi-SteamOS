@@ -46,15 +46,14 @@ install_kodi_dependencies() {
 main() {
     log_section "Bazzite-Kodi-SteamOS Build Process"
 
-    ls /tmp
-
-    # Install Kodi dependencies first
     install_kodi_dependencies
 
+    # Add additional dependencies
     dnf5 -y install inotify-tools drm-utils
 
-    # Install services
-    run_stage "Setting up services" "/bin/bash /ctx/install-services.sh"
+    run_stage "Installing polkit rules" "/bin/bash /ctx/services/install-polkit.sh"
+    run_stage "Installing session switching system" "/bin/bash /ctx/services/install-session-switching.sh"
+    run_stage "Setting up Kodi service" "/bin/bash /ctx/services/install-kodi-service.sh"
 
     log_success "Bazzite-Kodi-SteamOS build completed successfully!"
 }

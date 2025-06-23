@@ -1,0 +1,19 @@
+// Allow wheel group to manage specific systemd services without password
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.freedesktop.systemd1.manage-units") &&
+        (action.lookup("unit") == "kodi-gbm.service" ||
+         action.lookup("unit") == "sddm.service" ||
+         action.lookup("unit") == "session-switch-handler.service") &&
+        subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+});
+
+// Allow kodi user to restart the session-switch-handler service
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.freedesktop.systemd1.manage-units") &&
+        (action.lookup("unit") == "session-switch-handler.service") &&
+        subject.user == "kodi") {
+        return polkit.Result.YES;
+    }
+});

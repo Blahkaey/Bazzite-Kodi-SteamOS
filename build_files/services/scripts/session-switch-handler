@@ -1,0 +1,363 @@
+#!/bin/bash
+#
+# Session Switch Handler Daemon
+# Watches for session switch requests and handles transitions
+#
+
+set -euo pipefail
+
+# Configuration
+TRIGGER_FILE="/var/run/session-switch-request"
+STATE_FILE="/var/lib/session-state"
+LOCK_FILE="/var/run/session-switch.lock"
+DISPLAY_METHOD_FILE="/var/run/display-wake-method"
+SDDM_CONF="/etc/sddm.conf.d/zz-steamos-autologin.conf"
+LOG_TAG="session-switch-handler"
+
+# Logging functions
+log_info() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] INFO: $@"
+}
+
+log_warning() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] WARNING: $@" >&2
+}
+
+log_error() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] ERROR: $@" >&2
+}
+
+# Initialize runtime files
+mkdir -p /var/run /var/lib
+touch "$TRIGGER_FILE"
+chmod 666 "$TRIGGER_FILE"
+echo -n "" > "$TRIGGER_FILE"
+
+# Initialize state file
+if [[ ! -f "$STATE_FILE" ]]; then
+    if systemctl is-active --quiet kodi-gbm.service; then
+        echo "kodi" > "$STATE_FILE"
+    elif systemctl is-active --quiet sddm.service; then
+        echo "gamemode" > "$STATE_FILE"
+    else
+        echo "unknown" > "$STATE_FILE"
+    fi
+fi
+chmod 644 "$STATE_FILE"
+
+log_info "Session switch handler started"
+
+# Function: Wait for process to exit with timeout
+wait_for_process_exit() {
+    local process_pattern="$1"
+    local timeout="${2:-30}"  # Default 30 iterations (3 seconds)
+    local count=0
+
+    while pgrep -f "$process_pattern" >/dev/null && [ $count -lt $timeout ]; do
+        sleep 0.1
+        ((count++))
+    done
+
+    # Return success if process is gone
+    ! pgrep -f "$process_pattern" >/dev/null
+}
+
+# Function: Wait for process to start with timeout
+wait_for_process_start() {
+    local process_name="$1"
+    local timeout="${2:-20}"  # Default 20 iterations (2 seconds)
+    local count=0
+
+    while ! pgrep -x "$process_name" >/dev/null && [ $count -lt $timeout ]; do
+        sleep 0.1
+        ((count++))
+    done
+
+    # Return success if process started
+    pgrep -x "$process_name" >/dev/null
+}
+
+# Function: Smart display wake with learning
+wake_display() {
+    log_info "Waking display..."
+
+    # Check what method worked last time
+    local last_method=$(cat "$DISPLAY_METHOD_FILE" 2>/dev/null || echo "unknown")
+
+    # Try ddcutil first (unless we know it needs VT)
+    if [[ "$last_method" != "vt_required" ]]; then
+        if command -v ddcutil &>/dev/null; then
+            if ddcutil dpms on 2>/dev/null; then
+                echo "ddcutil" > "$DISPLAY_METHOD_FILE"
+                return 0
+            fi
+        fi
+    fi
+
+    # If ddcutil failed or wasn't tried, do VT switch
+    log_info "Using VT switch for display wake"
+    local current_vt=$(fgconsole 2>/dev/null || echo "1")
+
+    # Quick VT switch to reset display state
+    chvt 2 2>/dev/null || true
+    sleep 0.1
+    chvt 1 2>/dev/null || true
+    sleep 0.1
+
+    # Try ddcutil again after VT switch
+    if command -v ddcutil &>/dev/null; then
+        if ddcutil dpms on 2>/dev/null; then
+            echo "vt_then_ddcutil" > "$DISPLAY_METHOD_FILE"
+        else
+            echo "vt_required" > "$DISPLAY_METHOD_FILE"
+        fi
+    else
+        echo "vt_only" > "$DISPLAY_METHOD_FILE"
+    fi
+}
+
+# Function: Process cleanup
+cleanup_processes() {
+    local target="$1"
+
+    case "$target" in
+        kodi)
+            # Try graceful termination
+            pkill -TERM -f "kodi" 2>/dev/null || true
+            # Short grace period
+            sleep 0.2
+            # Force kill if still running
+            if pgrep -f "kodi" >/dev/null; then
+                log_info "Force killing Kodi processes"
+                pkill -KILL -f "kodi" 2>/dev/null || true
+            fi
+            ;;
+        gaming)
+            # Terminate Steam and Gamescope
+            #pkill -TERM -f "steam" 2>/dev/null || true
+            #pkill -TERM -f "gamescope" 2>/dev/null || true
+            # Short grace period
+            #sleep 0.2
+
+            systemctl stop plugin_loader.service
+
+            # Force kill if needed
+            #if pgrep -f "steam|gamescope" >/dev/null; then
+            #    log_info "Force killing gaming processes"
+            #    pkill -KILL -f "steam" 2>/dev/null || true
+                pkill -KILL -f "gamescope" 2>/dev/null || true
+            #fi
+            ;;
+    esac
+}
+
+# Function: Switch to Kodi with retry logic
+switch_to_kodi() {
+    log_info "Switching to Kodi HDR mode..."
+
+    # Quick check if already running
+    if systemctl is-active --quiet kodi-gbm.service; then
+        log_info "Already in Kodi mode"
+        return 0
+    fi
+
+    # Update SDDM config for next boot
+    mkdir -p "$(dirname "$SDDM_CONF")"
+    {
+        echo "[Autologin]"
+        echo "Session=kodi-gbm-session.desktop"
+    } > "$SDDM_CONF"
+
+    # Stop SDDM if running
+    if systemctl is-active --quiet sddm.service; then
+        log_info "Stopping SDDM..."
+        if ! systemctl stop sddm.service; then
+            log_error "Failed to stop SDDM"
+            return 1
+        fi
+
+        # Wait for gamescope to actually exit
+        wait_for_process_exit "gamescope" 30 || {
+            log_warning "Gamescope didn't exit cleanly, continuing anyway"
+        }
+    fi
+
+    # Cleanup gaming processes
+    cleanup_processes "gaming"
+
+    # Ensure on TTY1
+    chvt 1 2>/dev/null || true
+
+    # Wake display before starting
+    wake_display
+
+    # Try to start Kodi (with retry)
+    local attempts=0
+    local max_attempts=2
+
+    while [ $attempts -lt $max_attempts ]; do
+        log_info "Starting Kodi service (attempt $((attempts+1))/$max_attempts)..."
+
+        if systemctl start kodi-gbm.service; then
+            # Wait for Kodi to actually start
+            if wait_for_process_start "kodi-gbm" 20; then
+                echo "kodi" > "$STATE_FILE"
+                wake_display  # Wake again after start
+                log_info "Successfully switched to Kodi"
+                return 0
+            else
+                log_error "Kodi service started but process not found"
+                systemctl stop kodi-gbm.service 2>/dev/null || true
+            fi
+        fi
+
+        ((attempts++))
+
+        if [ $attempts -lt $max_attempts ]; then
+            log_info "Retrying in 1 second..."
+            sleep 1
+        fi
+    done
+
+    # Attempts failed, try recovery
+    log_error "Failed to start Kodi after $max_attempts attempts, attempting recovery"
+
+    # Recovery: Clear any stuck state and try once more
+    systemctl reset-failed kodi-gbm.service 2>/dev/null || true
+    pkill -KILL -f "kodi" 2>/dev/null || true
+    sleep 0.5
+
+    if systemctl start kodi-gbm.service; then
+        if wait_for_process_start "kodi-gbm" 20; then
+            echo "kodi" > "$STATE_FILE"
+            wake_display
+            log_info "Recovery successful - Kodi started"
+            return 0
+        fi
+    fi
+
+    log_error "Failed to start Kodi - recovery unsuccessful"
+    echo "failed" > "$STATE_FILE"
+    return 1
+}
+
+# Function: Switch to gaming mode with retry logic
+switch_to_gamemode() {
+    log_info "Switching to Gaming mode..."
+
+    # Quick check if already running
+    if systemctl is-active --quiet sddm.service; then
+        log_info "Already in Gaming mode"
+        return 0
+    fi
+
+    # Update SDDM config
+    mkdir -p "$(dirname "$SDDM_CONF")"
+    {
+        echo "[Autologin]"
+        echo "Session=gamescope-session.desktop"
+    } > "$SDDM_CONF"
+
+    # Stop Kodi if running
+    if systemctl is-active --quiet kodi-gbm.service; then
+        log_info "Stopping Kodi service..."
+        systemctl stop kodi-gbm.service || true
+
+        # Wait for Kodi to exit
+        wait_for_process_exit "kodi-gbm" 20 || {
+            log_warning "Kodi didn't exit cleanly, continuing anyway"
+        }
+    fi
+
+    # Cleanup Kodi processes
+    cleanup_processes "kodi"
+
+    systemctl start plugin_loader.service
+    sleep 0.1
+
+    # Try to start SDDM (with retry)
+    local attempts=0
+    local max_attempts=2
+
+    while [ $attempts -lt $max_attempts ]; do
+        log_info "Starting SDDM (attempt $((attempts+1))/$max_attempts)..."
+
+        # Reset failed state
+        systemctl reset-failed sddm.service 2>/dev/null || true
+
+        if systemctl start sddm.service; then
+            # Give SDDM a moment to initialize
+            sleep 0.5
+
+            if systemctl is-active --quiet sddm.service; then
+                echo "gamemode" > "$STATE_FILE"
+                log_info "Successfully switched to Gaming mode"
+                return 0
+            fi
+        fi
+
+        ((attempts++))
+
+        if [ $attempts -lt $max_attempts ]; then
+            log_info "Retrying in 1 second..."
+            sleep 1
+        fi
+    done
+
+    # Recovery attempt
+    log_error "Failed to start SDDM after $max_attempts attempts, attempting recovery"
+
+    # Kill any stuck processes
+    pkill -KILL -f "sddm" 2>/dev/null || true
+    sleep 0.5
+
+    systemctl reset-failed sddm.service 2>/dev/null || true
+
+    if systemctl start sddm.service; then
+        echo "gamemode" > "$STATE_FILE"
+        log_info "Recovery successful - SDDM started"
+        return 0
+    fi
+
+    log_error "Failed to start SDDM - recovery unsuccessful"
+    echo "failed" > "$STATE_FILE"
+    return 1
+}
+
+# Main loop
+log_info "Entering main loop, watching $TRIGGER_FILE"
+
+while true; do
+    # Wait for trigger file modification
+    if inotifywait -e modify,create "$TRIGGER_FILE" 2>/dev/null; then
+        # Lock to prevent concurrent switches
+        exec 200>"$LOCK_FILE"
+        if ! flock -n 200; then
+            log_info "Another switch operation in progress, skipping..."
+            continue
+        fi
+
+        # Read and clear the request
+        REQUEST=$(cat "$TRIGGER_FILE" 2>/dev/null | tr -d '\n' | tr -d ' ')
+        echo -n "" > "$TRIGGER_FILE"
+
+        # Process the request
+        case "$REQUEST" in
+            "kodi")
+                switch_to_kodi
+                ;;
+            "gamemode"|"gaming")
+                switch_to_gamemode
+                ;;
+            "")
+                # Empty request, ignore
+                ;;
+            *)
+                log_error "Unknown request: $REQUEST"
+                ;;
+        esac
+
+        # Release lock
+        flock -u 200
+    fi
+done

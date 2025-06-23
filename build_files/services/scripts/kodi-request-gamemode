@@ -1,0 +1,7 @@
+#!/bin/bash
+# For calling from within Kodi UI
+echo "gamemode" > /var/run/session-switch-request
+if [ -t 1 ]; then
+    echo "Switching to Gaming Mode..."
+fi
+exit 0

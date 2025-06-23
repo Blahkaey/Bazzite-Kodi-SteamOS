@@ -1,0 +1,3 @@
+SUBSYSTEM=="dma_heap", KERNEL=="linux*", GROUP="video", MODE="0660"
+SUBSYSTEM=="dma_heap", KERNEL=="system", GROUP="video", MODE="0660"
+SUBSYSTEM=="input", GROUP="input", MODE="0660"

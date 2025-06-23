@@ -1,0 +1,3 @@
+#!/bin/bash
+echo "kodi" > /var/run/session-switch-request
+echo "Requested switch to Kodi mode"
