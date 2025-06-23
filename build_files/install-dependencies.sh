@@ -31,16 +31,20 @@ cleanup() {
     fi
 
     # Disable any repos we enabled
-    for repo in "${ENABLED_REPOS[@]}"; do
-        log_debug "Disabling repository: $repo"
-        dnf5 config-manager setopt "${repo}.enabled=0" 2>/dev/null || true
-    done
+    if [ ${#ENABLED_REPOS[@]} -gt 0 ]; then
+        for repo in "${ENABLED_REPOS[@]}"; do
+            log_debug "Disabling repository: $repo"
+            dnf5 config-manager setopt "${repo}.enabled=0" 2>/dev/null || true
+        done
+    fi
 
     # Remove any repos we added
-    for repo in "${ADDED_REPOS[@]}"; do
-        log_debug "Removing repository: $repo"
-        dnf5 config-manager --remove-repo "$repo" 2>/dev/null || true
-    done
+    if [ ${#ADDED_REPOS[@]} -gt 0 ]; then
+        for repo in "${ADDED_REPOS[@]}"; do
+            log_debug "Removing repository: $repo"
+            dnf5 config-manager --remove-repo "$repo" 2>/dev/null || true
+        done
+    fi
 
     # Remove any other temp files
     rm -f /tmp/libva-build 2>/dev/null || true
@@ -232,7 +236,7 @@ install_java11() {
     create_fedora41_repo
 
     # Install java-11-openjdk-headless
-    if ! dnf5 install -y java-11-openjdk-headless --repo "$FEDORA_41_REPO" ; then
+    if ! dnf5 install -y java-11-openjdk-headless --repo "$FEDORA_41_REPO"  >/dev/null 2>&1; then
         log_error "Failed to install java-11-openjdk-headless"
         dnf5 search java-11-openjdk-headless || true
         return 1
@@ -270,11 +274,11 @@ build_libva() {
         die "Meson configuration for libva failed"
     fi
 
-    if ! ninja; then
+    if ! ninja >/dev/null 2>&1; then
         die "Failed to compile libva"
     fi
 
-    if ! ninja install; then
+    if ! ninja install >/dev/null 2>&1; then
         die "Failed to install libva"
     fi
 
