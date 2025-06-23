@@ -8,104 +8,20 @@ readonly PACKAGE_CONFIG="/ctx/package-lists.conf"
 readonly TEMP_DIR="/tmp/kodi-deps-$$"
 readonly FEDORA_41_REPO="fedora-41"
 readonly TERRA_MESA_REPO="terra-mesa"
-readonly FEDORA_41_REPO_FILE="${TEMP_DIR}/fedora-41.repo"
-
-# Repository URLs and keys
+readonly FEDORA_41_REPO_FILE="/etc/yum.repos.d/fedora-41.repo"
 readonly FEDORA_41_URL="https://download.fedoraproject.org/pub/fedora/linux/releases/41/Everything/x86_64/os/"
-readonly FEDORA_GPG_KEY="https://getfedora.org/static/fedora.gpg"
 
-# Track repositories we've added/modified
-declare -a ADDED_REPOS=()
-declare -a ENABLED_REPOS=()
-
-# Cleanup function
-cleanup() {
+# Simple error handler
+handle_error() {
     local exit_code=$?
-
-    log_info "Running cleanup... (exit code: $exit_code)"
-
-    # Only clean temp directory
-    if [ -d "$TEMP_DIR" ]; then
-        rm -rf "$TEMP_DIR" || true
-    fi
-
-    log_info "Cleanup completed"
-
+    log_error "Build failed with exit code: $exit_code"
     exit $exit_code
 }
 
-# Set up cleanup trap
-trap cleanup EXIT INT TERM
+# Set up error trap
+trap handle_error ERR
 
-# Repository management functions
-repo_exists() {
-    local repo_name="$1"
-    dnf5 repolist --repo "$repo_name" 2>/dev/null | grep -q "$repo_name"
-}
-
-repo_is_enabled() {
-    local repo_name="$1"
-    dnf5 repolist --enabled --repo "$repo_name" 2>/dev/null | grep -q "$repo_name"
-}
-
-enable_repo() {
-    local repo_name="$1"
-
-    if ! repo_exists "$repo_name"; then
-        log_error "Repository $repo_name does not exist"
-        return 1
-    fi
-
-    if repo_is_enabled "$repo_name"; then
-        log_debug "Repository $repo_name already enabled"
-        return 0
-    fi
-
-    log_info "Enabling repository: $repo_name"
-    if dnf5 config-manager setopt "${repo_name}.enabled=1"; then
-        ENABLED_REPOS+=("$repo_name")
-        return 0
-    else
-        log_error "Failed to enable repository: $repo_name"
-        return 1
-    fi
-}
-
-disable_repo() {
-    local repo_name="$1"
-
-    if ! repo_exists "$repo_name"; then
-        log_debug "Repository $repo_name does not exist, skipping disable"
-        return 0
-    fi
-
-    log_info "Disabling repository: $repo_name"
-    dnf5 config-manager setopt "${repo_name}.enabled=0" || true
-
-    # Remove from enabled list if present
-    ENABLED_REPOS=("${ENABLED_REPOS[@]/$repo_name/}")
-}
-
-add_repo() {
-    local repo_name="$1"
-    local repo_file="$2"
-
-    if repo_exists "$repo_name"; then
-        log_info "Repository $repo_name already exists"
-        return 0
-    fi
-
-    log_info "Adding repository: $repo_name"
-    if dnf5 config-manager addrepo --from-repofile="$repo_file"; then
-        ADDED_REPOS+=("$repo_name")
-        log_success "Repository $repo_name added"
-        return 0
-    else
-        log_error "Failed to add repository: $repo_name"
-        return 1
-    fi
-}
-
+# Create Fedora 41 repository
 create_fedora41_repo() {
     log_info "Creating Fedora 41 repository configuration..."
 
@@ -115,11 +31,10 @@ name=Fedora 41 - x86_64
 baseurl=${FEDORA_41_URL}
 enabled=1
 gpgcheck=0
-gpgkey=${FEDORA_GPG_KEY}
 priority=10
 EOF
 
-    add_repo "$FEDORA_41_REPO" "$FEDORA_41_REPO_FILE"
+    log_success "Repository $FEDORA_41_REPO added"
 }
 
 # Package installation functions
@@ -153,14 +68,11 @@ install_packages() {
         return 0
     fi
 
-    # If batch fails, try one by one
+    # If batch fails, try one by one for better error reporting
     log_info "Batch install failed, trying individual packages..."
 
     for pkg in "${pkg_array[@]}"; do
-        if rpm -q "$pkg" >/dev/null 2>&1; then
-            log_debug "$pkg already installed"
-            installed_packages+=("$pkg")
-        elif dnf5 install -y "$pkg" >/dev/null 2>&1; then
+        if dnf5 install -y "$pkg" >/dev/null 2>&1; then
             log_success "Installed $pkg"
             installed_packages+=("$pkg")
         else
@@ -187,8 +99,9 @@ install_packages() {
 install_gbm_packages() {
     log_info "Installing GBM packages with special handling..."
 
-    # Enable terra-mesa for mesa devel packages
-    enable_repo "$TERRA_MESA_REPO" || log_warning "Could not enable $TERRA_MESA_REPO"
+    # Enable terra-mesa for mesa devel packages (already exists in Bazzite)
+    log_info "Enabling terra-mesa repository..."
+    dnf5 config-manager setopt "${TERRA_MESA_REPO}.enabled=1"
 
     # Try to install mesa devel packages from terra-mesa
     local mesa_packages=("mesa-libgbm-devel" "mesa-libEGL-devel")
@@ -203,8 +116,9 @@ install_gbm_packages() {
         fi
     done
 
-    # Disable terra-mesa after use
-    disable_repo "$TERRA_MESA_REPO"
+    # Disable terra-mesa after use to keep final image clean
+    log_info "Disabling terra-mesa repository..."
+    dnf5 config-manager setopt "${TERRA_MESA_REPO}.enabled=0"
 
     # Install remaining GBM packages
     install_packages "GBM_DEPS" true
@@ -217,16 +131,17 @@ install_java11() {
     create_fedora41_repo
 
     # Install java-11-openjdk-headless
-    if ! dnf5 install -y java-11-openjdk-headless --repo "$FEDORA_41_REPO"  >/dev/null 2>&1; then
+    if ! dnf5 install -y java-11-openjdk-headless --repo "$FEDORA_41_REPO" >/dev/null 2>&1; then
         log_error "Failed to install java-11-openjdk-headless"
-        dnf5 search java-11-openjdk-headless || true
         return 1
     fi
 
     log_success "Successfully installed java-11-openjdk-headless"
 
-    # Disable the repo after use
-    disable_repo "$FEDORA_41_REPO"
+    # Disable and remove the repo to keep final image clean
+    log_info "Cleaning up Fedora 41 repository..."
+    dnf5 config-manager setopt "${FEDORA_41_REPO}.enabled=0"
+    rm -f "$FEDORA_41_REPO_FILE"
 
     return 0
 }
@@ -251,7 +166,7 @@ build_libva() {
 
     if ! meson setup .. \
         -Dprefix=/usr \
-        -Dlibdir=/usr/lib64>/dev/null; then
+        -Dlibdir=/usr/lib64 >/dev/null; then
         die "Meson configuration for libva failed"
     fi
 
@@ -272,18 +187,12 @@ build_libva() {
     cd - >/dev/null
 }
 
-
 # Main execution
 main() {
     log_subsection "Package Installation for Kodi HDR/GBM Build"
 
     # Create temp directory
     mkdir -p "$TEMP_DIR"
-
-    # Check if package config exists
-    if [ ! -f "$PACKAGE_CONFIG" ]; then
-        die "Package configuration not found: $PACKAGE_CONFIG"
-    fi
 
     # Refresh metadata once at the start
     refresh_dnf_metadata

@@ -206,7 +206,7 @@ configure_build() {
     log_info "Configuring Kodi build..."
 
     # Apply the patch
-    patch_ffmpeg_cmake
+    #patch_ffmpeg_cmake
 
     mkdir -p "$BUILD_DIR"
     cd "$BUILD_DIR"
