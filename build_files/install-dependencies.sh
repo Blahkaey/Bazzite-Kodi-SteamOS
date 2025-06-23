@@ -8,7 +8,7 @@ source "/ctx/utility.sh"
 # =============================================================================
 
 # DNF5 command with optimizations
-readonly DNF5_CMD="dnf5 --setopt=fastestmirror=1 --setopt=max_parallel_downloads=10 --setopt=install_weak_deps=0"
+readonly DNF5_CMD="dnf5 --setopt=fastestmirror=1 --setopt=max_parallel_downloads=10 --setopt=install_weak_deps=0 --nogpgcheck"
 
 # Cache directories
 readonly CACHE_BASE="/var/cache/dependencies"

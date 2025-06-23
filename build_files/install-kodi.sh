@@ -117,7 +117,6 @@ fetch_kodi_source() {
         log_success "Source cloned and cached"
     fi
 
-    cd - >/dev/null
 }
 
 # =============================================================================
