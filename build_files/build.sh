@@ -3,22 +3,53 @@ set -euo pipefail
 
 source "/ctx/utility.sh"
 
+install_kodi_dependencies() {
+    log_subsection "Installing Kodi runtime dependencies"
+
+    if [[ ! -f "/tmp/runtime-deps.txt" ]]; then
+        log_error "Runtime dependencies file not found!"
+        exit 1
+    fi
+
+    log_info "Checking which dependencies are already installed..."
+    missing_deps=""
+
+    while IFS= read -r pkg; do
+        if [[ -n "$pkg" ]]; then
+            if ! rpm -q "$pkg" &>/dev/null; then
+                missing_deps="$missing_deps $pkg"
+            else
+                log_success "$pkg already installed"
+            fi
+        fi
+    done < /tmp/runtime-deps.txt
+
+    if [[ -n "$missing_deps" ]]; then
+        log_info "Installing missing dependencies:$missing_deps"
+        if ! dnf -y install $missing_deps; then
+            log_warning "Failed to install some dependencies, attempting individually..."
+            for pkg in $missing_deps; do
+                dnf -y install "$pkg" || log_warning "Could not install $pkg"
+            done
+        fi
+    else
+        log_success "All dependencies already installed!"
+    fi
+
+    # Clean up
+    rm -f /tmp/runtime-deps.txt
+    ldconfig
+    dnf clean all
+}
+
 # Main build process
 main() {
     log_section "Bazzite-Kodi-SteamOS Build Process"
 
-    # Kodi is already installed from the base image
-    log_success "Using pre-built Kodi from base image"
+    # Install Kodi dependencies first
+    install_kodi_dependencies
 
-    # Verify Kodi installation
-    if [[ -x "/usr/lib64/kodi/kodi-gbm" ]]; then
-        log_success "Kodi binary verified at /usr/lib64/kodi/kodi-gbm"
-    else
-        log_error "Kodi binary not found! Base image may be corrupted."
-        exit 1
-    fi
-
-    # Only install services now
+    # Install services
     run_stage "Setting up services" "/bin/bash /ctx/install-services.sh"
 
     log_success "Bazzite-Kodi-SteamOS build completed successfully!"

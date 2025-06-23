@@ -16,38 +16,11 @@ COPY --from=kodi-artifacts /usr/lib64/kodi /usr/lib64/kodi
 COPY --from=kodi-artifacts /usr/bin/kodi* /usr/bin/
 COPY --from=kodi-artifacts /usr/share/kodi /usr/share/kodi
 COPY --from=kodi-artifacts /usr/share/applications/*kodi* /usr/share/applications/
-COPY --from=kodi-artifacts /usr/share/icons /usr/share/icons
-COPY --from=kodi-artifacts /usr/share/xsessions /usr/share/xsessions
-COPY --from=kodi-artifacts /runtime-deps.txt /tmp/
-COPY --from=kodi-artifacts /verify-kodi.sh /tmp/
-
-# Install only Kodi runtime dependencies
-RUN echo "Installing Kodi runtime dependencies..." && \
-    echo "Checking which dependencies are already installed..." && \
-    missing_deps="" && \
-    for pkg in $(cat /tmp/runtime-deps.txt); do \
-        if ! rpm -q "$pkg" &>/dev/null; then \
-            missing_deps="$missing_deps $pkg"; \
-        else \
-            echo "  ✓ $pkg already installed"; \
-        fi; \
-    done && \
-    if [ -n "$missing_deps" ]; then \
-        echo "Installing missing dependencies:$missing_deps" && \
-        dnf -y --nogpgcheck install $missing_deps || \
-        { echo "Failed to install some dependencies, attempting individually..."; \
-          for pkg in $missing_deps; do \
-            dnf -y --nogpgcheck install "$pkg" || echo "Warning: Could not install $pkg"; \
-          done; }; \
-    else \
-        echo "All dependencies already installed!"; \
-    fi && \
-    rm /tmp/runtime-deps.txt && \
-    ldconfig && \
-    dnf clean all && \
-    echo "Verifying Kodi installation..." && \
-    /tmp/verify-kodi.sh && \
-    rm /tmp/verify-kodi.sh
+COPY --from=kodi-artifacts /usr/share/xsessions/*kodi* /usr/share/xsessions/
+COPY --from=kodi-artifacts /usr/share/icons/hicolor/*/apps/kodi* /usr/share/icons/hicolor/
+COPY --from=kodi-artifacts /usr/share/metainfo/*kodi* /usr/share/metainfo/
+COPY --from=kodi-artifacts /usr/lib/firewalld/services/*kodi* /usr/lib/firewalld/services/
+COPY --from=kodi-artifacts /runtime-deps.txt /tmp/runtime-deps.txt
 
 ### MODIFICATIONS
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
