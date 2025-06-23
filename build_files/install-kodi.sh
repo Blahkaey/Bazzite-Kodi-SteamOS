@@ -381,28 +381,49 @@ main() {
     log_section "Kodi HDR/GBM Build Process"
 
     # Initialize
-    init_cache_directories
-    setup_ccache
-    setup_build_environment
+    log_info "Initializing cache directories..."
+    init_cache_directories || { log_error "Failed to initialize cache directories"; exit 1; }
 
-    # Debug cache status at start
+    log_info "Setting up ccache..."
+    setup_ccache || { log_error "Failed to setup ccache"; exit 1; }
+
+    log_info "Setting up build environment..."
+    setup_build_environment || { log_error "Failed to setup build environment"; exit 1; }
+
+    # Debug cache status at start (make it always run for now)
+    log_info "Checking cache status..."
     debug_cache_info
 
     # Check if already built
-    if check_build_state && [[ -x "/usr/lib64/kodi/kodi-gbm" ]]; then
-        log_info "Kodi already built and installed"
-        log_info "To force rebuild, remove: $BUILD_STATE_FILE"
-        return 0
+    log_info "Checking build state..."
+    if check_build_state; then
+        if [[ -x "/usr/lib64/kodi/kodi-gbm" ]]; then
+            log_info "Kodi already built and installed"
+            log_info "To force rebuild, remove: $BUILD_STATE_FILE"
+            return 0
+        else
+            log_warning "Build state indicates completion but binary missing, continuing with build..."
+        fi
+    else
+        log_info "No previous successful build found, proceeding with build..."
     fi
 
     # Verify dependencies
-    verify_dependencies
+    log_info "Verifying dependencies..."
+    verify_dependencies || { log_error "Dependency verification failed"; exit 1; }
 
     # Build process
-    fetch_kodi_source
-    configure_build
-    build_kodi
-    install_kodi
+    log_info "Fetching source code..."
+    fetch_kodi_source || { log_error "Failed to fetch source"; exit 1; }
+
+    log_info "Configuring build..."
+    configure_build || { log_error "Failed to configure build"; exit 1; }
+
+    log_info "Starting build..."
+    build_kodi || { log_error "Build failed"; exit 1; }
+
+    log_info "Installing..."
+    install_kodi || { log_error "Installation failed"; exit 1; }
 
     # Cleanup
     cleanup_build_artifacts
@@ -410,5 +431,8 @@ main() {
     log_success "Kodi HDR/GBM build completed successfully!"
 }
 
-# Execute main function
-main "$@"
+# Execute main function with error handling
+if ! main "$@"; then
+    log_error "Kodi build process failed"
+    exit 1
+fi
