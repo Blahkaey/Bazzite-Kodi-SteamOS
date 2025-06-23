@@ -28,24 +28,6 @@ declare -A PACKAGE_GROUPS=(
     [OPTIONAL]="libbluray-devel libcec-devel libnfs-devel libplist-devel shairplay-devel flatbuffers flatbuffers-devel fmt-devel fstrcmp-devel spdlog-devel lirc-devel"
 )
 
-# =============================================================================
-# DNF OPTIMIZATION
-# =============================================================================
-
-configure_dnf_performance() {
-    log_info "Optimizing DNF performance..."
-
-    # Show current settings for debugging
-    if [[ "${DEBUG:-0}" == "1" ]]; then
-        log_debug "Current DNF settings:"
-        log_debug "  fastestmirror: $(dnf5 --dump-main-config | grep '^fastestmirror' | cut -d'=' -f2 | xargs)"
-        log_debug "  max_parallel_downloads: $(dnf5 --dump-main-config | grep '^max_parallel_downloads' | cut -d'=' -f2 | xargs)"
-        log_debug "  install_weak_deps: $(dnf5 --dump-main-config | grep '^install_weak_deps' | cut -d'=' -f2 | xargs)"
-    fi
-
-    # Single metadata refresh at start
-    $DNF5_CMD makecache --refresh || log_warning "Failed to refresh DNF cache"
-}
 
 # =============================================================================
 # REPOSITORY MANAGEMENT
@@ -225,34 +207,9 @@ install_special_packages() {
 # LIBVA BUILD
 # =============================================================================
 
-check_libva_installed() {
-    # Check if libva is already installed and recent
-    if pkg-config --exists libva && [[ -f "/usr/lib64/libva.so" ]]; then
-        local installed_version=$(pkg-config --modversion libva 2>/dev/null || echo "0.0.0")
-        log_info "Found existing libva version: $installed_version"
-
-        # Check if version is recent enough (2.20+)
-        local major=$(echo "$installed_version" | cut -d. -f1)
-        local minor=$(echo "$installed_version" | cut -d. -f2)
-
-        if [[ "$major" -gt 2 ]] || [[ "$major" -eq 2 && "$minor" -ge 20 ]]; then
-            log_success "libva $installed_version is recent enough, skipping build"
-            return 0
-        fi
-    fi
-
-    return 1
-}
 
 build_libva() {
     log_info "Building libva from source..."
-
-    # Check if already installed with pkg-config
-    if check_libva_installed; then
-        return 0
-    fi
-
-    log_info "Building libva (this may take a few minutes)..."
 
     # Disable ccache for meson builds to avoid conflicts
     export CCACHE_DISABLE=1
@@ -306,59 +263,6 @@ build_libva() {
     return 0
 }
 
-# =============================================================================
-# VERIFICATION
-# =============================================================================
-
-verify_critical_dependencies() {
-    log_info "Verifying critical dependencies..."
-
-    local -a missing=()
-
-    # Check critical commands
-    local -a required_cmds=(
-        "gcc:gcc"
-        "g++:gcc-c++"
-        "cmake:cmake"
-        "ninja:ninja-build"
-        "pkg-config:pkgconf-pkg-config"
-        "meson:meson"
-    )
-
-    for cmd_info in "${required_cmds[@]}"; do
-        local cmd="${cmd_info%%:*}"
-        local pkg="${cmd_info##*:}"
-
-        if ! command -v "$cmd" >/dev/null 2>&1; then
-            missing+=("$cmd (package: $pkg)")
-        fi
-    done
-
-    # Check critical headers
-    local -a required_headers=(
-        "/usr/include/gbm.h:mesa-libgbm-devel"
-        "/usr/include/EGL/egl.h:mesa-libEGL-devel"
-        "/usr/include/va/va.h:libva"
-    )
-
-    for header_info in "${required_headers[@]}"; do
-        local header="${header_info%%:*}"
-        local pkg="${header_info##*:}"
-
-        if [[ ! -f "$header" ]]; then
-            missing+=("$header (package: $pkg)")
-        fi
-    done
-
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        log_error "Missing critical dependencies:"
-        printf '%s\n' "${missing[@]}" | sed 's/^/  - /'
-        return 1
-    fi
-
-    log_success "All critical dependencies verified"
-    return 0
-}
 
 # =============================================================================
 # CLEANUP
@@ -380,8 +284,7 @@ cleanup_package_cache() {
 main() {
     log_section "Installing Kodi Build Dependencies"
 
-    # Initialize
-    configure_dnf_performance
+    $DNF5_CMD makecache --refresh || log_warning "Failed to refresh DNF cache"
 
     # Install packages by group
     install_special_packages || die "Failed to install special packages"
@@ -396,9 +299,6 @@ main() {
 
     # Install optional packages (don't fail on these)
     install_package_group "OPTIONAL" false
-
-    # Verify everything is in place
-    verify_critical_dependencies || die "Critical dependencies missing after installation"
 
     # Cleanup
     cleanup_package_cache

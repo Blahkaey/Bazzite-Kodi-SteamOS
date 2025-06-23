@@ -12,14 +12,14 @@ readonly KODI_VERSION="Omega"
 readonly KODI_REPO="https://github.com/xbmc/xbmc"
 readonly KODI_PREFIX="/usr"
 
-# Build directories - NOT readonly since we may change SOURCE_DIR
+# Build directories
 BUILD_DIR="/tmp/kodi-build"
 SOURCE_DIR="/tmp/kodi-source"
 
 # Cache directories (leveraging container cache mount)
 readonly CACHE_BASE="/var/cache/kodi"
 readonly SOURCE_CACHE_DIR="${CACHE_BASE}/sources"
-CCACHE_DIR="${CACHE_BASE}/ccache"  # Not readonly, may be modified
+CCACHE_DIR="${CACHE_BASE}/ccache"
 readonly BUILD_STATE_FILE="${CACHE_BASE}/build-state"
 
 # Build configuration
@@ -171,7 +171,7 @@ verify_dependencies() {
         fi
     done
 
-    # Check for critical libraries using pkg-config
+    # Check for critical libraries
     local required_libs=("libva" "gbm" "egl" "glesv2")
 
     for lib in "${required_libs[@]}"; do
