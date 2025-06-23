@@ -3,6 +3,9 @@ set -euo pipefail
 
 source "/ctx/utility.sh"
 
+# Enable debug mode for troubleshooting
+export DEBUG=1
+
 # Main build process
 main() {
     log_section "Kodi Build Process"
