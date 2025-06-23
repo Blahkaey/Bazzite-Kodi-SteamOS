@@ -19,6 +19,10 @@ COPY --from=kodi-artifacts /usr/share/applications/*kodi* /usr/share/application
 COPY --from=kodi-artifacts /usr/share/xsessions/*kodi* /usr/share/xsessions/
 COPY --from=kodi-artifacts /usr/share/metainfo/*kodi* /usr/share/metainfo/
 COPY --from=kodi-artifacts /usr/lib/firewalld/services/*kodi* /usr/lib/firewalld/services/
+COPY --from=builder /usr/share/icons/hicolor/ /usr/share/icons/hicolor/
+COPY --from=kodi-artifacts /usr/bin/TexturePacker /usr/bin/
+COPY --from=kodi-artifacts /usr/share/doc/kodi /usr/share/doc/kodi
+COPY --from=kodi-artifacts /usr/include/kodi /usr/include/kodi
 COPY --from=kodi-artifacts /runtime-deps.txt /var/tmp/runtime-deps.txt
 
 ### MODIFICATIONS
