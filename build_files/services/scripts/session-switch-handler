@@ -182,14 +182,14 @@ switch_to_kodi() {
     chvt 1 2>/dev/null || true
 
     # Wake display before starting
-    #wake_display
+    wake_display
 
     # Start Kodi
     if systemctl start kodi-gbm.service; then
         # Wait for Kodi to actually start
         if wait_for_process_start "kodi-gbm" 20; then
             echo "kodi" > "$STATE_FILE"
-            wake_display  # Wake again after start
+            #wake_display  # Wake again after start
             log_info "Successfully switched to Kodi"
             return 0
         else
