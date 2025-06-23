@@ -10,7 +10,7 @@ add_temp_repo() {
     local repo_name="$1"
     local repo_url="$2"
 
-    log_info "Adding temporary repository: $repo_name"
+    echo "Adding temporary repository: $repo_name"
 
     # Create a temporary repo file instead of using config-manager addrepo
     # This is more reliable for temporary repos in container builds
@@ -29,7 +29,7 @@ EOF
 
 remove_temp_repo() {
     local repo_name="$1"
-    log_info "Removing temporary repository: $repo_name"
+    echo "Removing temporary repository: $repo_name"
 
     # Remove the repo file
     rm -f "/etc/yum.repos.d/${repo_name}.repo"
