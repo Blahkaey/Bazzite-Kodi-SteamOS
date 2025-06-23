@@ -15,12 +15,6 @@ install_kodi_pre_launch() {
 patch_kodi_standalone() {
     log_subsection "Installing optimized kodi-standalone script"
 
-    # Backup original if it exists
-    if [ -f "/usr/bin/kodi-standalone" ]; then
-        cp /usr/bin/kodi-standalone /usr/bin/kodi-standalone.orig
-    fi
-
-    # Install our optimized version
     cp /ctx/services/scripts/kodi-standalone /usr/bin/
     chmod +x /usr/bin/kodi-standalone
 

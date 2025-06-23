@@ -10,11 +10,12 @@ Group=kodi
 PAMName=login
 TTYPath=/dev/tty1
 
+Environment="HOME=/var/lib/kodi"
+
 ExecStartPre=/usr/bin/kodi-pre-launch
 ExecStart=/usr/bin/kodi-standalone
 ExecStop=-/usr/bin/killall --exact kodi-gbm
 
-Environment="HOME=/var/lib/kodi"
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=10

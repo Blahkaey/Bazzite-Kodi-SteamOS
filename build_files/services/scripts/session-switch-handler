@@ -50,11 +50,11 @@ log_info "Session switch handler started"
 # Function: Wait for process to exit with timeout
 wait_for_process_exit() {
     local process_pattern="$1"
-    local timeout="${2:-30}"  # Default 30 iterations (3 seconds)
+    local timeout="${2:-30}"  # Default 300 iterations (3 seconds)
     local count=0
 
     while pgrep -f "$process_pattern" >/dev/null && [ $count -lt $timeout ]; do
-        sleep 0.1
+        sleep 0.01
         ((count++))
     done
 
@@ -65,11 +65,11 @@ wait_for_process_exit() {
 # Function: Wait for process to start with timeout
 wait_for_process_start() {
     local process_name="$1"
-    local timeout="${2:-20}"  # Default 20 iterations (2 seconds)
+    local timeout="${2:-20}"  # Default 200 iterations (2 seconds)
     local count=0
 
     while ! pgrep -x "$process_name" >/dev/null && [ $count -lt $timeout ]; do
-        sleep 0.1
+        sleep 0.01
         ((count++))
     done
 
@@ -161,13 +161,6 @@ switch_to_kodi() {
         return 0
     fi
 
-    # Update SDDM config for next boot
-    mkdir -p "$(dirname "$SDDM_CONF")"
-    {
-        echo "[Autologin]"
-        echo "Session=kodi-gbm-session.desktop"
-    } > "$SDDM_CONF"
-
     # Stop SDDM if running
     if systemctl is-active --quiet sddm.service; then
         log_info "Stopping SDDM..."
@@ -189,38 +182,24 @@ switch_to_kodi() {
     chvt 1 2>/dev/null || true
 
     # Wake display before starting
-    wake_display
+    #wake_display
 
-    # Try to start Kodi (with retry)
-    local attempts=0
-    local max_attempts=2
-
-    while [ $attempts -lt $max_attempts ]; do
-        log_info "Starting Kodi service (attempt $((attempts+1))/$max_attempts)..."
-
-        if systemctl start kodi-gbm.service; then
-            # Wait for Kodi to actually start
-            if wait_for_process_start "kodi-gbm" 20; then
-                echo "kodi" > "$STATE_FILE"
-                wake_display  # Wake again after start
-                log_info "Successfully switched to Kodi"
-                return 0
-            else
-                log_error "Kodi service started but process not found"
-                systemctl stop kodi-gbm.service 2>/dev/null || true
-            fi
+    # Start Kodi
+    if systemctl start kodi-gbm.service; then
+        # Wait for Kodi to actually start
+        if wait_for_process_start "kodi-gbm" 20; then
+            echo "kodi" > "$STATE_FILE"
+            wake_display  # Wake again after start
+            log_info "Successfully switched to Kodi"
+            return 0
+        else
+            log_error "Kodi service started but process not found"
+            systemctl stop kodi-gbm.service 2>/dev/null || true
         fi
+    fi
 
-        ((attempts++))
-
-        if [ $attempts -lt $max_attempts ]; then
-            log_info "Retrying in 1 second..."
-            sleep 1
-        fi
-    done
-
-    # Attempts failed, try recovery
-    log_error "Failed to start Kodi after $max_attempts attempts, attempting recovery"
+    
+    log_error "Failed to start Kodi, attempting recovery"
 
     # Recovery: Clear any stuck state and try once more
     systemctl reset-failed kodi-gbm.service 2>/dev/null || true
@@ -275,37 +254,23 @@ switch_to_gamemode() {
     systemctl start plugin_loader.service
     sleep 0.1
 
-    # Try to start SDDM (with retry)
-    local attempts=0
-    local max_attempts=2
 
-    while [ $attempts -lt $max_attempts ]; do
-        log_info "Starting SDDM (attempt $((attempts+1))/$max_attempts)..."
+    # Reset failed state
+    systemctl reset-failed sddm.service 2>/dev/null || true
 
-        # Reset failed state
-        systemctl reset-failed sddm.service 2>/dev/null || true
+    if systemctl start sddm.service; then
+        # Give SDDM a moment to initialize
+        sleep 0.5
 
-        if systemctl start sddm.service; then
-            # Give SDDM a moment to initialize
-            sleep 0.5
-
-            if systemctl is-active --quiet sddm.service; then
-                echo "gamemode" > "$STATE_FILE"
-                log_info "Successfully switched to Gaming mode"
-                return 0
-            fi
+        if systemctl is-active --quiet sddm.service; then
+            echo "gamemode" > "$STATE_FILE"
+            log_info "Successfully switched to Gaming mode"
+            return 0
         fi
+    fi
 
-        ((attempts++))
 
-        if [ $attempts -lt $max_attempts ]; then
-            log_info "Retrying in 1 second..."
-            sleep 1
-        fi
-    done
-
-    # Recovery attempt
-    log_error "Failed to start SDDM after $max_attempts attempts, attempting recovery"
+    log_error "Failed to start SDDM, attempting recovery"
 
     # Kill any stuck processes
     pkill -KILL -f "sddm" 2>/dev/null || true
