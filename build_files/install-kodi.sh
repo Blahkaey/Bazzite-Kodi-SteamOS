@@ -12,14 +12,14 @@ readonly KODI_VERSION="Omega"
 readonly KODI_REPO="https://github.com/xbmc/xbmc"
 readonly KODI_PREFIX="/usr"
 
-# Build directories
-readonly BUILD_DIR="/tmp/kodi-build"
-readonly SOURCE_DIR="/tmp/kodi-source"
+# Build directories - NOT readonly since we may change SOURCE_DIR
+BUILD_DIR="/tmp/kodi-build"
+SOURCE_DIR="/tmp/kodi-source"
 
 # Cache directories (leveraging container cache mount)
 readonly CACHE_BASE="/var/cache/kodi"
 readonly SOURCE_CACHE_DIR="${CACHE_BASE}/sources"
-readonly CCACHE_DIR="${CACHE_BASE}/ccache"
+CCACHE_DIR="${CACHE_BASE}/ccache"  # Not readonly, may be modified
 readonly BUILD_STATE_FILE="${CACHE_BASE}/build-state"
 
 # Build configuration
