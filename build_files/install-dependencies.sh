@@ -226,24 +226,72 @@ install_gbm_packages() {
 }
 
 install_java11() {
-    log_info "Installing Java 11 from Fedora 41 repository..."
+    log_info "Installing Java 11..."
+
+    # First check if Java 11 is already available in base repos
+    if dnf5 info java-11-openjdk-headless >/dev/null 2>&1; then
+        log_info "Java 11 found in base repositories, attempting direct install..."
+        if dnf5 install -y java-11-openjdk-headless >/dev/null 2>&1; then
+            log_success "Successfully installed java-11-openjdk-headless from base repos"
+            return 0
+        fi
+    fi
+
+    log_info "Java 11 not in base repos, trying Fedora 41 repository..."
 
     # Add Fedora 41 repo
     create_fedora41_repo
 
-    # Install java-11-openjdk-headless
-    if ! dnf5 install -y java-11-openjdk-headless --repo "$FEDORA_41_REPO" >/dev/null 2>&1; then
-        log_error "Failed to install java-11-openjdk-headless"
-        dnf5 search java-11-openjdk-headless || true
+    # Verify repo is accessible
+    log_info "Verifying Fedora 41 repository..."
+    if ! dnf5 repolist --repo "$FEDORA_41_REPO" | grep -q "$FEDORA_41_REPO"; then
+        log_error "Fedora 41 repository not accessible"
         return 1
     fi
 
-    log_success "Successfully installed java-11-openjdk-headless"
+    # Try to install with more verbose error handling
+    log_info "Attempting to install java-11-openjdk-headless from Fedora 41..."
 
-    # Disable the repo after use
+    # First, try with explicit repo and see what happens
+    local install_output
+    install_output=$(dnf5 install -y java-11-openjdk-headless --repo "$FEDORA_41_REPO" 2>&1)
+    local install_status=$?
+
+    if [ $install_status -eq 0 ]; then
+        log_success "Successfully installed java-11-openjdk-headless"
+        disable_repo "$FEDORA_41_REPO"
+        return 0
+    else
+        log_error "Installation failed with status $install_status"
+        log_error "DNF output: $install_output"
+
+        # Try to understand why it failed
+        log_info "Checking for dependency conflicts..."
+        dnf5 install java-11-openjdk-headless --repo "$FEDORA_41_REPO" --assumeno 2>&1 | grep -E "Problem:|Error:|Conflict:" | head -20
+
+        # Alternative: Try java-17 which might be available
+        log_info "Trying alternative: java-17-openjdk-headless..."
+        if dnf5 install -y java-17-openjdk-headless >/dev/null 2>&1; then
+            log_success "Installed java-17-openjdk-headless as alternative"
+            log_warning "Using Java 17 instead of Java 11 - this should work for Kodi"
+            disable_repo "$FEDORA_41_REPO"
+            return 0
+        fi
+
+        # Final alternative: Try the base java package
+        log_info "Trying final alternative: generic java package..."
+        if dnf5 install -y java-openjdk-headless >/dev/null 2>&1; then
+            log_success "Installed java-openjdk-headless"
+            local java_version=$(java -version 2>&1 | head -1)
+            log_info "Installed Java version: $java_version"
+            disable_repo "$FEDORA_41_REPO"
+            return 0
+        fi
+    fi
+
     disable_repo "$FEDORA_41_REPO"
-
-    return 0
+    log_error "All Java installation attempts failed"
+    return 1
 }
 
 build_libva() {
