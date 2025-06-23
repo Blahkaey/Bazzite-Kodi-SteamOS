@@ -19,7 +19,7 @@ COPY --from=kodi-artifacts /usr/share/applications/*kodi* /usr/share/application
 COPY --from=kodi-artifacts /usr/share/xsessions/*kodi* /usr/share/xsessions/
 COPY --from=kodi-artifacts /usr/share/metainfo/*kodi* /usr/share/metainfo/
 COPY --from=kodi-artifacts /usr/lib/firewalld/services/*kodi* /usr/lib/firewalld/services/
-COPY --from=kodi-artifacts /runtime-deps.txt /tmp/runtime-deps.txt
+COPY --from=kodi-artifacts /runtime-deps.txt /var/tmp/runtime-deps.txt
 
 ### MODIFICATIONS
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \

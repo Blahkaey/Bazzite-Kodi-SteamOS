@@ -6,7 +6,7 @@ source "/ctx/utility.sh"
 install_kodi_dependencies() {
     log_subsection "Installing Kodi runtime dependencies"
 
-    if [[ ! -f "/tmp/runtime-deps.txt" ]]; then
+    if [[ ! -f "/var/tmp/runtime-deps.txt" ]]; then
         log_error "Runtime dependencies file not found!"
         exit 1
     fi
@@ -22,7 +22,7 @@ install_kodi_dependencies() {
                 log_success "$pkg already installed"
             fi
         fi
-    done < /tmp/runtime-deps.txt
+    done < /var/tmp/runtime-deps.txt
 
     if [[ -n "$missing_deps" ]]; then
         log_info "Installing missing dependencies:$missing_deps"
@@ -37,7 +37,7 @@ install_kodi_dependencies() {
     fi
 
     # Clean up
-    rm -f /tmp/runtime-deps.txt
+    rm -f /var/tmp/runtime-deps.txt
     ldconfig
     dnf clean all
 }
