@@ -1,2 +1,9 @@
+# Input devices (controllers, keyboards, etc)
 SUBSYSTEM=="input", TAG+="uaccess"
-SUBSYSTEM=="dma_heap", KERNEL=="linux*", TAG+="uaccess"
+
+# DMA heap access for hardware acceleration
+SUBSYSTEM=="dma_heap", KERNEL=="linux*", TAG+="uaccess", MODE="0660"
+SUBSYSTEM=="dma_heap", KERNEL=="system", TAG+="uaccess", MODE="0660"
+
+# DRM render nodes (usually already handled, but explicit is good)
+SUBSYSTEM=="drm", KERNEL=="renderD*", TAG+="uaccess"
