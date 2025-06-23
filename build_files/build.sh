@@ -3,21 +3,25 @@ set -euo pipefail
 
 source "/ctx/utility.sh"
 
-# Enable debug mode for troubleshooting
-export DEBUG=1
-
 # Main build process
 main() {
-    log_section "Kodi Build Process"
+    log_section "Bazzite-Kodi-SteamOS Build Process"
 
-    # Execute build stages with bash explicitly
-    run_stage "Installing dependencies" "/bin/bash /ctx/install-dependencies.sh"
-    run_stage "Building Kodi from source" "/bin/bash /ctx/install-kodi.sh"
+    # Kodi is already installed from the base image
+    log_success "Using pre-built Kodi from base image"
+
+    # Verify Kodi installation
+    if [[ -x "/usr/lib64/kodi/kodi-gbm" ]]; then
+        log_success "Kodi binary verified at /usr/lib64/kodi/kodi-gbm"
+    else
+        log_error "Kodi binary not found! Base image may be corrupted."
+        exit 1
+    fi
+
+    # Only install services now
     run_stage "Setting up services" "/bin/bash /ctx/install-services.sh"
 
-
     log_success "Bazzite-Kodi-SteamOS build completed successfully!"
-    log_section "Image build Complete"
 }
 
 run_stage() {
@@ -33,7 +37,6 @@ run_stage() {
 
     log_success "$stage_name completed"
 }
-
 
 # Run main function
 main "$@"
