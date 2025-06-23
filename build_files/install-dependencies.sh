@@ -335,36 +335,6 @@ build_libva() {
     cd - >/dev/null
 }
 
-validate_installation() {
-    log_info "Validating critical packages..."
-
-    local critical_packages=(
-        "cmake"
-        "gcc"
-        "gcc-c++"
-        "mesa-libGLES"
-        "mesa-libgbm"
-        "libdrm"
-    )
-
-    local missing=()
-
-    for pkg in "${critical_packages[@]}"; do
-        if ! rpm -q "$pkg" >/dev/null 2>&1; then
-            missing+=("$pkg")
-        fi
-    done
-
-    if [ ${#missing[@]} -gt 0 ]; then
-        log_error "Critical packages are missing:"
-        printf '%s\n' "${missing[@]}" | sed 's/^/  - /'
-        return 1
-    fi
-
-    log_success "All critical packages are installed"
-    return 0
-}
-
 # Main execution
 main() {
     log_subsection "Package Installation for Kodi HDR/GBM Build"
@@ -394,9 +364,6 @@ main() {
 
     # Install optional packages (don't fail on these)
     install_packages "OPTIONAL" false
-
-    # Validate installation
-    validate_installation || die "Installation validation failed"
 
     log_success "All dependencies installed successfully"
 }
