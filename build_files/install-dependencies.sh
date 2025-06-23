@@ -19,10 +19,11 @@ declare -a ADDED_REPOS=()
 declare -a ENABLED_REPOS=()
 
 # Cleanup function
+# Cleanup function with debug info
 cleanup() {
     local exit_code=$?
 
-    log_info "Running cleanup..."
+    log_info "Running cleanup... (exit code: $exit_code)"
 
     # Remove temp directory
     if [ -d "$TEMP_DIR" ]; then
@@ -32,24 +33,30 @@ cleanup() {
 
     # Disable any repos we enabled
     if [ ${#ENABLED_REPOS[@]} -gt 0 ]; then
+        log_info "Disabling ${#ENABLED_REPOS[@]} repositories"
         for repo in "${ENABLED_REPOS[@]}"; do
-            log_debug "Disabling repository: $repo"
-            dnf5 config-manager setopt "${repo}.enabled=0" 2>/dev/null || true
+            if [ -n "$repo" ]; then  # Skip empty entries
+                log_debug "Disabling repository: $repo"
+                dnf5 config-manager setopt "${repo}.enabled=0" 2>/dev/null || true
+            fi
         done
     fi
 
     # Remove any repos we added
     if [ ${#ADDED_REPOS[@]} -gt 0 ]; then
+        log_info "Removing ${#ADDED_REPOS[@]} added repositories"
         for repo in "${ADDED_REPOS[@]}"; do
-            log_debug "Removing repository: $repo"
-            dnf5 config-manager --remove-repo "$repo" 2>/dev/null || true
+            if [ -n "$repo" ]; then  # Skip empty entries
+                log_debug "Removing repository: $repo"
+                dnf5 config-manager --remove-repo "$repo" 2>/dev/null || true
+            fi
         done
     fi
 
     # Remove any other temp files
     rm -f /tmp/libva-build 2>/dev/null || true
 
-    log_info "Cleanup completed"
+    log_info "Cleanup completed, exiting with code: $exit_code"
     exit $exit_code
 }
 
@@ -101,8 +108,14 @@ disable_repo() {
     log_info "Disabling repository: $repo_name"
     dnf5 config-manager setopt "${repo_name}.enabled=0" || true
 
-    # Remove from enabled list if present
-    ENABLED_REPOS=("${ENABLED_REPOS[@]/$repo_name/}")
+    # Properly remove from enabled list
+    local new_array=()
+    for repo in "${ENABLED_REPOS[@]}"; do
+        if [ "$repo" != "$repo_name" ]; then
+            new_array+=("$repo")
+        fi
+    done
+    ENABLED_REPOS=("${new_array[@]}")
 }
 
 add_repo() {
@@ -270,7 +283,7 @@ build_libva() {
 
     if ! meson setup .. \
         -Dprefix=/usr \
-        -Dlibdir=/usr/lib64; then
+        -Dlibdir=/usr/lib64 >/dev/null 2>&1; then
         die "Meson configuration for libva failed"
     fi
 
