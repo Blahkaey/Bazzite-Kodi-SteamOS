@@ -19,6 +19,7 @@ env:
 jobs:
   build-kodi-base:
     name: Build Kodi Base Image
+    id: build
     runs-on: ubuntu-24.04
     permissions:
       contents: read
