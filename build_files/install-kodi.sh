@@ -73,10 +73,17 @@ save_build_state() {
 
 check_build_state() {
     if [[ -f "$BUILD_STATE_FILE" ]]; then
-        local last_state=$(tail -1 "$BUILD_STATE_FILE" | cut -d'|' -f3)
-        if [[ "$last_state" == "completed" ]]; then
-            log_info "Previous successful build detected"
-            return 0
+        local last_state=$(tail -1 "$BUILD_STATE_FILE" 2>/dev/null | cut -d'|' -f3)
+        local last_version=$(tail -1 "$BUILD_STATE_FILE" 2>/dev/null | cut -d'|' -f2)
+
+        if [[ "$last_state" == "completed" ]] && [[ "$last_version" == "$KODI_VERSION" ]]; then
+            # Also check if the binary actually exists
+            if [[ -x "/usr/lib64/kodi/kodi-gbm" ]]; then
+                log_info "Previous successful build detected and binary exists"
+                return 0
+            else
+                log_warning "Build state shows completed but binary is missing"
+            fi
         fi
     fi
     return 1
@@ -91,32 +98,41 @@ fetch_kodi_source() {
 
     local cached_source="${SOURCE_CACHE_DIR}/${KODI_VERSION}"
 
-    # Use cached source if available
+    # Check if we can use the cached source directly
     if [[ -d "${cached_source}/.git" ]]; then
-        log_info "Using cached source from ${cached_source}"
-        cp -r "$cached_source" "$SOURCE_DIR"
+        log_info "Found cached source at ${cached_source}"
 
-        # Update the cached copy
+        # Use the cached source directly instead of copying
+        SOURCE_DIR="$cached_source"
+
         cd "$SOURCE_DIR"
+
+        # Try to update, but don't fail if offline
         if git fetch --depth=1 origin "${KODI_VERSION}" 2>/dev/null; then
-            git reset --hard "origin/${KODI_VERSION}"
-            log_success "Source updated from cache"
+            if git rev-parse --verify "origin/${KODI_VERSION}" >/dev/null 2>&1; then
+                git reset --hard "origin/${KODI_VERSION}"
+                log_success "Source updated from remote"
+            fi
         else
-            log_info "Using existing cached source"
+            log_info "Could not fetch updates, using existing cached source"
         fi
     else
-        # Fresh clone
+        # Fresh clone directly to cache location
         log_info "Cloning fresh source..."
-        if ! git clone --depth=1 --branch="${KODI_VERSION}" "$KODI_REPO" "$SOURCE_DIR"; then
+        mkdir -p "$(dirname "$cached_source")"
+
+        if ! git clone --depth=1 --branch="${KODI_VERSION}" "$KODI_REPO" "$cached_source"; then
             die "Failed to clone Kodi repository"
         fi
 
-        # Cache the clone
-        mkdir -p "$(dirname "$cached_source")"
-        cp -r "$SOURCE_DIR" "$cached_source"
-        log_success "Source cloned and cached"
+        SOURCE_DIR="$cached_source"
+        log_success "Source cloned to cache"
     fi
 
+    # Verify source directory
+    if [[ ! -f "$SOURCE_DIR/CMakeLists.txt" ]]; then
+        die "Source directory is invalid: $SOURCE_DIR"
+    fi
 }
 
 # =============================================================================
@@ -200,6 +216,21 @@ configure_build() {
     mkdir -p "$BUILD_DIR"
     cd "$BUILD_DIR"
 
+    # Check if already configured
+    if [[ -f "CMakeCache.txt" ]] && [[ -f "build.ninja" || -f "Makefile" ]]; then
+        log_info "Build directory already configured, checking if reconfiguration needed..."
+
+        # Check if source directory in cache matches
+        local cached_source_dir=$(grep "CMAKE_HOME_DIRECTORY:" CMakeCache.txt | cut -d= -f2)
+        if [[ "$cached_source_dir" == "$SOURCE_DIR" ]]; then
+            log_info "Using existing build configuration"
+            return 0
+        else
+            log_info "Source directory changed, reconfiguring..."
+            rm -rf "$BUILD_DIR"/*
+        fi
+    fi
+
     generate_cmake_args
 
     log_info "CMake arguments:"
@@ -262,15 +293,29 @@ build_kodi() {
 
     cd "$BUILD_DIR"
 
-    # Show ccache stats before build
+    # Show ccache stats before build (with error handling)
     if command -v ccache >/dev/null 2>&1; then
         log_info "Ccache stats before build:"
-        ccache --show-stats | grep -E "hit rate|cache size" | sed 's/^/  /'
+        if ! ccache --show-stats 2>/dev/null | grep -E "hit rate|cache size" | sed 's/^/  /'; then
+            log_warning "Could not get ccache stats, continuing anyway"
+        fi
     fi
 
-    # Build with error handling
-    if ! cmake --build . --parallel "$CMAKE_BUILD_PARALLEL_LEVEL"; then
+    # Ensure CMAKE_BUILD_PARALLEL_LEVEL is set and valid
+    if [[ -z "$CMAKE_BUILD_PARALLEL_LEVEL" ]] || [[ "$CMAKE_BUILD_PARALLEL_LEVEL" -eq 0 ]]; then
+        CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)
+        log_warning "CMAKE_BUILD_PARALLEL_LEVEL was not set properly, using: $CMAKE_BUILD_PARALLEL_LEVEL"
+    fi
+
+    log_info "Starting build with $CMAKE_BUILD_PARALLEL_LEVEL parallel jobs..."
+
+    # Build with better error handling and output
+    if ! cmake --build . --parallel "$CMAKE_BUILD_PARALLEL_LEVEL" 2>&1 | tee build.log; then
         log_error "Build failed"
+
+        # Show last 50 lines of build log for debugging
+        log_error "Last 50 lines of build output:"
+        tail -50 build.log | sed 's/^/  /'
 
         # Save failed state
         save_build_state "failed"
@@ -278,10 +323,10 @@ build_kodi() {
         die "Compilation failed"
     fi
 
-    # Show ccache stats after build
+    # Show ccache stats after build (with error handling)
     if command -v ccache >/dev/null 2>&1; then
         log_info "Ccache stats after build:"
-        ccache --show-stats | grep -E "hit rate|cache size" | sed 's/^/  /'
+        ccache --show-stats 2>/dev/null | grep -E "hit rate|cache size" | sed 's/^/  /' || true
     fi
 
     log_success "Build completed successfully"
@@ -339,6 +384,9 @@ main() {
     init_cache_directories
     setup_ccache
     setup_build_environment
+
+    # Debug cache status at start
+    debug_cache_info
 
     # Check if already built
     if check_build_state && [[ -x "/usr/lib64/kodi/kodi-gbm" ]]; then

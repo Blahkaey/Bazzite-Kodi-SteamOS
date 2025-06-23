@@ -284,39 +284,53 @@ check_libva_installed() {
 build_libva_cached() {
     log_info "Building libva from source..."
 
-    # Disable ccache for meson builds to avoid conflicts
-    export CCACHE_DISABLE=1
-
-
-    # Check if already built
+    # Check if already installed with pkg-config
     if check_libva_installed; then
         return 0
     fi
 
-    # Check cache for previous build
-    local cache_marker="${LIBVA_CACHE}/build-complete"
-    if [[ -f "$cache_marker" ]]; then
+    # Use a more persistent cache location
+    local libva_install_marker="${LIBVA_CACHE}/installed-$(date +%Y%m)"
+
+    # Check if we have a recent install
+    if [[ -f "$libva_install_marker" ]]; then
+        log_success "libva already installed this month"
+        return 0
+    fi
+
+    # If libva source exists and is recent, just install
+    if [[ -d "${LIBVA_CACHE}/build" ]] && [[ -f "${LIBVA_CACHE}/.git/config" ]]; then
         log_info "Found cached libva build, installing..."
         cd "$LIBVA_CACHE"
+
+        # Try to install from existing build
         if ninja -C build install >/dev/null 2>&1; then
             ldconfig
+            touch "$libva_install_marker"
             log_success "Installed libva from cache"
             return 0
+        else
+            log_info "Cached build unusable, rebuilding..."
         fi
     fi
 
     # Fresh build
     log_info "Building libva (this may take a few minutes)..."
 
-    # Clean and prepare cache directory
-    rm -rf "$LIBVA_CACHE"
+    # Prepare directory
+    rm -rf "${LIBVA_CACHE}/build"
     mkdir -p "$LIBVA_CACHE"
     cd "$LIBVA_CACHE"
 
-    # Clone repository
-    if ! git clone --depth=1 https://github.com/intel/libva.git . >/dev/null 2>&1; then
-        log_error "Failed to clone libva repository"
-        return 1
+    # Clone or update repository
+    if [[ -d ".git" ]]; then
+        git pull --depth=1 >/dev/null 2>&1 || true
+    else
+        rm -rf "$LIBVA_CACHE"/*
+        if ! git clone --depth=1 https://github.com/intel/libva.git . >/dev/null 2>&1; then
+            log_error "Failed to clone libva repository"
+            return 1
+        fi
     fi
 
     # Configure build
@@ -345,14 +359,10 @@ build_libva_cached() {
     # Update library cache
     ldconfig
 
-    # Mark build as complete
-    touch "$cache_marker"
+    # Mark as installed
+    touch "$libva_install_marker"
 
     log_success "libva built and installed successfully"
-
-    # Re-enable ccache
-    unset CCACHE_DISABLE
-
     return 0
 }
 
