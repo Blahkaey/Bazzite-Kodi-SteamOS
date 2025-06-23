@@ -1,5 +1,5 @@
 # Kodi Base Image Builder
-FROM registry.fedoraproject.org/fedora:40 AS builder
+FROM registry.fedoraproject.org/fedora:42 AS builder
 
 # Install build dependencies
 COPY scripts/install-dependencies.sh /tmp/
