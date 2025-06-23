@@ -462,48 +462,6 @@ EOF
     log_success "Session request scripts installed"
 }
 
-create_desktop_entries() {
-    log_info "Creating desktop entries..."
-
-    cat > "/usr/share/applications/request-kodi.desktop" << 'EOF'
-[Desktop Entry]
-Name=Switch to Kodi HDR
-Comment=Switch to Kodi Media Center with HDR support
-Exec=/usr/bin/request-kodi
-Icon=kodi
-Type=Application
-Categories=AudioVideo;Video;Player;TV;System;
-Terminal=false
-StartupNotify=false
-EOF
-
-    cat > "/usr/share/applications/request-gamemode.desktop" << 'EOF'
-[Desktop Entry]
-Name=Switch to Gaming Mode
-Comment=Switch back to Gaming Mode
-Exec=/usr/bin/request-gamemode
-Icon=steam
-Type=Application
-Categories=Game;System;
-Terminal=false
-StartupNotify=false
-EOF
-
-    cat > "/usr/share/xsessions/kodi-gbm-session.desktop" << 'EOF'
-[Desktop Entry]
-Name=Kodi GBM Session
-Comment=Kodi Media Center (GBM/HDR)
-Exec=/usr/bin/kodi-standalone
-Icon=kodi
-Type=Application
-EOF
-
-    chmod 644 /usr/share/applications/*.desktop
-    chmod 644 /usr/share/xsessions/*.desktop 2>/dev/null || true
-
-    log_success "Desktop entries created"
-}
-
 install_kodi_pre_launch_script() {
     log_info "Installing Kodi pre-launch script for ALLM control..."
 
@@ -725,7 +683,6 @@ main() {
     create_polkit_rule
     install_session_switch_handler
     install_session_request_scripts
-    create_desktop_entries
     install_kodi_pre_launch_script
     patch_kodi_standalone_for_gbm
     install_kodi_gbm_service
