@@ -18,10 +18,6 @@ readonly FEDORA_GPG_KEY="https://getfedora.org/static/fedora.gpg"
 declare -a ADDED_REPOS=()
 declare -a ENABLED_REPOS=()
 
-# Ensure GPG directory exists
-mkdir -p /root/.gnupg
-chmod 700 /root/.gnupg
-
 # Cleanup function
 cleanup() {
     local exit_code=$?
