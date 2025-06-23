@@ -45,6 +45,9 @@ make -j$(nproc)
 echo "[INFO] Installing Kodi..."
 make install
 
+cd "${SOURCE_DIR}"
+make -j$(getconf _NPROCESSORS_ONLN) -C tools/depends/target/binary-addons PREFIX=/usr/local ADDONS="peripheral.joystick"
+
 # Update library cache
 ldconfig
 
