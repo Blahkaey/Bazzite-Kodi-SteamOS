@@ -284,6 +284,10 @@ check_libva_installed() {
 build_libva_cached() {
     log_info "Building libva from source..."
 
+    # Disable ccache for meson builds to avoid conflicts
+    export CCACHE_DISABLE=1
+
+
     # Check if already built
     if check_libva_installed; then
         return 0
@@ -345,7 +349,9 @@ build_libva_cached() {
     touch "$cache_marker"
 
     log_success "libva built and installed successfully"
-    cd - >/dev/null
+
+    # Re-enable ccache
+    unset CCACHE_DISABLE
 
     return 0
 }
