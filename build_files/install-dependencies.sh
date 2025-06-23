@@ -7,7 +7,10 @@ source "/ctx/utility.sh"
 # CONFIGURATION
 # =============================================================================
 
-# Cache directories (leveraging container cache mount)
+# DNF5 command with optimizations
+readonly DNF5_CMD="dnf5 --setopt=fastestmirror=1 --setopt=max_parallel_downloads=10 --setopt=install_weak_deps=0"
+
+# Cache directories
 readonly CACHE_BASE="/var/cache/dependencies"
 readonly LIBVA_CACHE="${CACHE_BASE}/libva"
 readonly INSTALL_STATE="${CACHE_BASE}/install-state"
@@ -17,7 +20,7 @@ readonly FEDORA_41_REPO="fedora-41"
 readonly FEDORA_41_URL="https://download.fedoraproject.org/pub/fedora/linux/releases/41/Everything/x86_64/os/"
 readonly TERRA_MESA_REPO="terra-mesa"  # Pre-exists in Bazzite
 
-# Package definitions (inline for simplicity)
+# Package definitions
 declare -A PACKAGE_GROUPS=(
     [ESSENTIAL]="git cmake gcc gcc-c++ make ninja-build autoconf automake libtool gettext gettext-devel pkgconf-pkg-config nasm yasm gperf swig python3-devel python3-pillow"
 
@@ -28,13 +31,6 @@ declare -A PACKAGE_GROUPS=(
     [GRAPHICS]="mesa-libGLES mesa-libgbm mesa-va-drivers mesa-libEGL libdrm libdisplay-info libdisplay-info-devel drm-utils"
 
     [OPTIONAL]="libbluray-devel libcec-devel libnfs-devel libplist-devel shairplay-devel flatbuffers flatbuffers-devel fmt-devel fstrcmp-devel spdlog-devel lirc-devel"
-)
-
-# Special packages that need specific repo handling
-declare -A SPECIAL_PACKAGES=(
-    [java-11-openjdk-headless]="$FEDORA_41_REPO"
-    [mesa-libgbm-devel]="$TERRA_MESA_REPO"
-    [mesa-libEGL-devel]="$TERRA_MESA_REPO"
 )
 
 # =============================================================================
@@ -67,17 +63,16 @@ check_install_state() {
 configure_dnf_performance() {
     log_info "Optimizing DNF performance..."
 
-    # Configure DNF for faster operations
-    cat > /etc/dnf/dnf.conf.d/99-build-optimization.conf << 'EOF'
-[main]
-fastestmirror=True
-max_parallel_downloads=10
-keepcache=True
-install_weak_deps=False
-EOF
+    # Show current settings for debugging
+    if [[ "${DEBUG:-0}" == "1" ]]; then
+        log_debug "Current DNF settings:"
+        log_debug "  fastestmirror: $(dnf5 --dump-main-config | grep '^fastestmirror' | cut -d'=' -f2 | xargs)"
+        log_debug "  max_parallel_downloads: $(dnf5 --dump-main-config | grep '^max_parallel_downloads' | cut -d'=' -f2 | xargs)"
+        log_debug "  install_weak_deps: $(dnf5 --dump-main-config | grep '^install_weak_deps' | cut -d'=' -f2 | xargs)"
+    fi
 
     # Single metadata refresh at start
-    dnf5 makecache --refresh >/dev/null 2>&1 || log_warning "Failed to refresh DNF cache"
+    $DNF5_CMD makecache --refresh || log_warning "Failed to refresh DNF cache"
 }
 
 # =============================================================================
@@ -90,33 +85,63 @@ add_temp_repo() {
 
     log_info "Adding temporary repository: $repo_name"
 
-    # Use DNF config-manager instead of creating files
-    dnf5 config-manager addrepo \
-        --id="$repo_name" \
-        --set="name='Temporary $repo_name'" \
-        --set="baseurl=$repo_url" \
-        --set="enabled=1" \
-        --set="gpgcheck=0" \
-        --set="priority=10" \
-        >/dev/null 2>&1
+    # Create a temporary repo file instead of using config-manager addrepo
+    # This is more reliable for temporary repos in container builds
+    cat > "/etc/yum.repos.d/${repo_name}.repo" << EOF
+[${repo_name}]
+name=Temporary ${repo_name}
+baseurl=${repo_url}
+enabled=1
+gpgcheck=0
+priority=10
+EOF
+
+    # Refresh just this repo's metadata
+    $DNF5_CMD makecache --repo="${repo_name}" || log_warning "Failed to refresh ${repo_name} metadata"
 }
 
 remove_temp_repo() {
     local repo_name="$1"
     log_info "Removing temporary repository: $repo_name"
-    dnf5 config-manager setopt "${repo_name}.enabled=0" >/dev/null 2>&1 || true
+
+    # Remove the repo file
+    rm -f "/etc/yum.repos.d/${repo_name}.repo"
 }
 
 enable_existing_repo() {
     local repo_name="$1"
     log_info "Enabling repository: $repo_name"
-    dnf5 config-manager setopt "${repo_name}.enabled=1" >/dev/null 2>&1
+
+    # Use config-manager with correct syntax
+    dnf5 config-manager setopt "${repo_name}.enabled=1" || {
+        log_warning "Could not enable repo via config-manager, trying alternative method"
+        # Alternative: modify the repo file directly
+        local repo_files=("/etc/yum.repos.d/${repo_name}.repo" "/etc/yum.repos.d/"*".repo")
+        for repo_file in "${repo_files[@]}"; do
+            if [[ -f "$repo_file" ]] && grep -q "^\[${repo_name}\]" "$repo_file"; then
+                sed -i "/^\[${repo_name}\]/,/^\[/ s/enabled=0/enabled=1/" "$repo_file"
+                break
+            fi
+        done
+    }
 }
 
 disable_existing_repo() {
     local repo_name="$1"
     log_info "Disabling repository: $repo_name"
-    dnf5 config-manager setopt "${repo_name}.enabled=0" >/dev/null 2>&1
+
+    # Use config-manager with correct syntax
+    dnf5 config-manager setopt "${repo_name}.enabled=0" || {
+        log_warning "Could not disable repo via config-manager, trying alternative method"
+        # Alternative: modify the repo file directly
+        local repo_files=("/etc/yum.repos.d/${repo_name}.repo" "/etc/yum.repos.d/"*".repo")
+        for repo_file in "${repo_files[@]}"; do
+            if [[ -f "$repo_file" ]] && grep -q "^\[${repo_name}\]" "$repo_file"; then
+                sed -i "/^\[${repo_name}\]/,/^\[/ s/enabled=1/enabled=0/" "$repo_file"
+                break
+            fi
+        done
+    }
 }
 
 # =============================================================================
@@ -148,7 +173,7 @@ install_package_group() {
 
     # Quick check for already installed packages
     for pkg in "${pkg_array[@]}"; do
-        if ! rpm -q "$pkg" >/dev/null 2>&1; then
+        if ! rpm -q "$pkg" &>/dev/null; then
             to_install+=("$pkg")
         fi
     done
@@ -161,23 +186,22 @@ install_package_group() {
 
     log_info "Need to install ${#to_install[@]} packages for $group_name"
 
-    # Try batch installation with better error handling
-    local install_cmd="dnf5 install -y --setopt=strict=0"
-
-    if $install_cmd "${to_install[@]}" >/dev/null 2>&1; then
+    # Try batch installation
+    # Note: --setopt=strict=0 allows some packages to fail in a group
+    if $DNF5_CMD install -y --setopt=strict=0 "${to_install[@]}"; then
         log_success "Successfully installed $group_name packages"
         save_install_state "$group_name" "success"
         return 0
     fi
 
-    # If batch failed and packages are required, try to identify which failed
+    # If batch failed and packages are required, check what's missing
     if [[ "$required" == "true" ]]; then
         log_error "Failed to install some $group_name packages"
 
-        # Quick check to identify missing packages
+        # Identify which packages are still missing
         local -a failed=()
         for pkg in "${to_install[@]}"; do
-            if ! rpm -q "$pkg" >/dev/null 2>&1; then
+            if ! rpm -q "$pkg" &>/dev/null; then
                 failed+=("$pkg")
             fi
         done
@@ -199,10 +223,10 @@ install_special_packages() {
     log_info "Installing special packages with repository handling..."
 
     # Install Java 11 from Fedora 41
-    if ! rpm -q java-11-openjdk-headless >/dev/null 2>&1; then
+    if ! rpm -q java-11-openjdk-headless &>/dev/null; then
         add_temp_repo "$FEDORA_41_REPO" "$FEDORA_41_URL"
 
-        if dnf5 install -y java-11-openjdk-headless --repo "$FEDORA_41_REPO" >/dev/null 2>&1; then
+        if $DNF5_CMD install -y java-11-openjdk-headless --repo "$FEDORA_41_REPO"; then
             log_success "Installed java-11-openjdk-headless"
         else
             log_error "Failed to install java-11-openjdk-headless"
@@ -220,8 +244,8 @@ install_special_packages() {
 
     local mesa_packages=("mesa-libgbm-devel" "mesa-libEGL-devel")
     for pkg in "${mesa_packages[@]}"; do
-        if ! rpm -q "$pkg" >/dev/null 2>&1; then
-            if dnf5 install -y "$pkg" --repo "$TERRA_MESA_REPO" >/dev/null 2>&1; then
+        if ! rpm -q "$pkg" &>/dev/null; then
+            if $DNF5_CMD install -y "$pkg" --repo "$TERRA_MESA_REPO"; then
                 log_success "Installed $pkg from $TERRA_MESA_REPO"
             else
                 log_warning "Could not install $pkg"
@@ -388,10 +412,7 @@ cleanup_package_cache() {
     log_info "Cleaning up package cache..."
 
     # Clean DNF cache (but keep the metadata)
-    dnf5 clean packages >/dev/null 2>&1
-
-    # Remove temporary repo configs
-    rm -f /etc/dnf/dnf.conf.d/99-build-optimization.conf
+    $DNF5_CMD clean packages || log_warning "Failed to clean package cache"
 
     log_success "Package cache cleaned"
 }
