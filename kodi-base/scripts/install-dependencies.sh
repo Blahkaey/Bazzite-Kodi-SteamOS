@@ -11,7 +11,7 @@ $DNF_CMD install \
     git cmake gcc gcc-c++ make ninja-build \
     autoconf automake libtool gettext gettext-devel \
     pkgconf-pkg-config nasm yasm gperf swig \
-    python3-devel python3-pillow meson
+    python3-devel python3-pillow meson patch
 
 # Kodi dependencies
 $DNF_CMD install \
