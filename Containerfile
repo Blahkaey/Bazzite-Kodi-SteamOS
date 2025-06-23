@@ -23,11 +23,25 @@ COPY --from=kodi-artifacts /verify-kodi.sh /tmp/
 
 # Install only Kodi runtime dependencies
 RUN echo "Installing Kodi runtime dependencies..." && \
-    dnf -y install $(cat /tmp/runtime-deps.txt | xargs) || \
-    { echo "Failed to install some dependencies, attempting individually..."; \
-      for pkg in $(cat /tmp/runtime-deps.txt); do \
-        dnf -y install "$pkg" || echo "Warning: Could not install $pkg"; \
-      done; } && \
+    echo "Checking which dependencies are already installed..." && \
+    missing_deps="" && \
+    for pkg in $(cat /tmp/runtime-deps.txt); do \
+        if ! rpm -q "$pkg" &>/dev/null; then \
+            missing_deps="$missing_deps $pkg"; \
+        else \
+            echo "  ✓ $pkg already installed"; \
+        fi; \
+    done && \
+    if [ -n "$missing_deps" ]; then \
+        echo "Installing missing dependencies:$missing_deps" && \
+        dnf -y install $missing_deps || \
+        { echo "Failed to install some dependencies, attempting individually..."; \
+          for pkg in $missing_deps; do \
+            dnf -y install "$pkg" || echo "Warning: Could not install $pkg"; \
+          done; }; \
+    else \
+        echo "All dependencies already installed!"; \
+    fi && \
     rm /tmp/runtime-deps.txt && \
     ldconfig && \
     dnf clean all && \
