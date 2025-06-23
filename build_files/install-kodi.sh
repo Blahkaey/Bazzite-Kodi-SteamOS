@@ -54,8 +54,6 @@ setup_ccache() {
         export CCACHE_DIR
         export CCACHE_COMPRESS=1
         export CCACHE_MAXSIZE="2G"
-        export CC="ccache gcc"
-        export CXX="ccache g++"
 
         ccache --set-config=cache_dir="$CCACHE_DIR"
         ccache --zero-stats >/dev/null 2>&1
@@ -200,6 +198,12 @@ generate_cmake_args() {
 
     # Add install prefix
     cmake_args+=("-DCMAKE_INSTALL_PREFIX=${KODI_PREFIX}")
+
+    # Use ccache via CMAKE_*_COMPILER_LAUNCHER instead of wrapping
+    if command -v ccache >/dev/null 2>&1; then
+        cmake_args+=("-DCMAKE_C_COMPILER_LAUNCHER=ccache")
+        cmake_args+=("-DCMAKE_CXX_COMPILER_LAUNCHER=ccache")
+    fi
 
     # Add all build configuration options
     for key in "${!BUILD_CONFIG[@]}"; do
