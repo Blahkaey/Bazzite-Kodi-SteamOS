@@ -5,6 +5,13 @@
 
 APP="/usr/lib64/kodi/kodi-gbm"
 
+# Start PulseAudio if needed
+if command -v start-pulseaudio-x11 >/dev/null 2>&1; then
+    if ! pgrep -x pulseaudio >/dev/null 2>&1; then
+        start-pulseaudio-x11 2>/dev/null || true
+    fi
+fi
+
 LOOP=1
 CRASHCOUNT=0
 LASTSUCCESSFULSTART=$(date +%s)
