@@ -13,7 +13,7 @@ FROM ghcr.io/ublue-os/bazzite-deck:stable
 
 # Copy pre-built Kodi binaries and files
 COPY --from=kodi-artifacts /usr/lib64/kodi /usr/lib64/kodi
-COPY --from=kodi-artifacts /usr/lib/kodi /usr/lib/kodi
+COPY --from=kodi-artifacts /usr/lib/kodi /usr/lib64/kodi
 COPY --from=kodi-artifacts /usr/bin/kodi* /usr/bin/
 COPY --from=kodi-artifacts /usr/share/kodi /usr/share/kodi
 COPY --from=kodi-artifacts /usr/share/applications/*kodi* /usr/share/applications/
