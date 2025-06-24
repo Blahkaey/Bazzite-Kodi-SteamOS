@@ -38,6 +38,7 @@ FROM scratch AS final
 
 # Copy Kodi installation
 COPY --from=builder /usr/lib64/kodi /usr/lib64/kodi
+COPY --from=builder /usr/lib/kodi /usr/lib/kodi
 COPY --from=builder /usr/bin/kodi* /usr/bin/
 COPY --from=builder /usr/share/kodi /usr/share/kodi
 COPY --from=builder /usr/share/applications/*kodi* /usr/share/applications/
