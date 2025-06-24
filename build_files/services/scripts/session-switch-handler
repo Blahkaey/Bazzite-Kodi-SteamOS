@@ -167,9 +167,6 @@ switch_to_kodi() {
     # Cleanup gaming processes
     cleanup_processes "gaming"
 
-    # Ensure on TTY1
-    chvt 1 2>/dev/null || true
-
     # Wake display before starting
     wake_display
 
