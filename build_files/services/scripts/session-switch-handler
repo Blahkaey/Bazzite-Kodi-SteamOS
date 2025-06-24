@@ -79,21 +79,142 @@ wait_for_process_start() {
 
 # Function: Smart display wake with learning
 wake_display() {
-    log_info "Waking display..."
+    # Read last method used
+    local last_method=$(cat "$DISPLAY_METHOD_FILE" 2>/dev/null || echo "none")
+    local next_method=""
     
-    # Method 1: Use modetest to set DPMS property
-    if command -v modetest &>/dev/null; then
-        # Find active connectors and set DPMS to On (property value 0)
-        local connectors=$(modetest -c 2>/dev/null | grep -E "^[0-9]+.*connected" | awk '{print $1}')
-        
-        for conn_id in $connectors; do
-            # DPMS: 0=On, 1=Standby, 2=Suspend, 3=Off
-            if modetest -w "${conn_id}:DPMS:0" 2>/dev/null; then
-                log_info "Display awakened via modetest (connector $conn_id)"
-                return 0
+    # Determine next method to try
+    case "$last_method" in
+        "none"|"vt_switch")
+            next_method="sysfs"
+            ;;
+        "sysfs")
+            next_method="ddcutil"
+            ;;
+        "ddcutil")
+            next_method="modetest"
+            ;;
+        "modetest")
+            next_method="vt_switch"
+            ;;
+        *)
+            next_method="sysfs"
+            ;;
+    esac
+    
+    log_info "Testing display wake method: $next_method"
+    
+    case "$next_method" in
+        "sysfs")
+            log_info "Method 1: sysfs direct write"
+            local success=false
+            local writable=false
+            
+            for dpms in /sys/class/drm/card*-*/dpms; do
+                if [ -f "$dpms" ]; then
+                    local status_file="${dpms%/dpms}/status"
+                    local connector=$(basename $(dirname "$dpms"))
+                    
+                    # Check if file is writable
+                    if [ -w "$dpms" ]; then
+                        writable=true
+                        if [ -f "$status_file" ] && [ "$(cat "$status_file")" = "connected" ]; then
+                            log_info "  Trying $connector (writable)..."
+                            if echo "On" > "$dpms" 2>/dev/null; then
+                                log_info "  Success on $connector"
+                                success=true
+                            else
+                                log_warning "  Write failed on $connector"
+                            fi
+                        fi
+                    else
+                        log_info "  $connector dpms is read-only ($(stat -c %a "$dpms"))"
+                    fi
+                fi
+            done
+            
+            if [ "$writable" = false ]; then
+                log_warning "  No writable DPMS sysfs files found - driver limitation"
             fi
-        done
-    fi
+            
+            echo "sysfs" > "$DISPLAY_METHOD_FILE"
+            [ "$success" = true ] && log_info "sysfs method completed successfully" || log_warning "sysfs method not available on this system"
+            ;;
+            
+        "ddcutil")
+            log_info "Method 2: ddcutil setvcp"
+            if command -v ddcutil &>/dev/null; then
+                # First detect displays
+                log_info "  Detecting displays..."
+                ddcutil detect --brief 2>&1 | tee /tmp/ddcutil-detect.log
+                
+                # VCP D6 is Power Mode: 01=On, 02=Standby, 03=Suspend, 04=Off, 05=Off(hard)
+                log_info "  Setting VCP D6 (Power Mode) to 01 (On)"
+                if ddcutil setvcp 0xD6 0x01 --verbose 2>&1 | tee /tmp/ddcutil-setvcp.log; then
+                    log_info "  ddcutil succeeded"
+                else
+                    log_warning "  ddcutil failed (check /tmp/ddcutil-setvcp.log)"
+                    # Try alternate syntax
+                    log_info "  Trying alternate: ddcutil setvcp D6 1"
+                    ddcutil setvcp D6 1 --verbose 2>&1 | tee -a /tmp/ddcutil-setvcp.log
+                fi
+            else
+                log_warning "  ddcutil not found"
+            fi
+            echo "ddcutil" > "$DISPLAY_METHOD_FILE"
+            ;;
+            
+        "modetest")
+            log_info "Method 3: modetest DPMS property"
+            if command -v modetest &>/dev/null; then
+                # First show current state
+                log_info "  Current display state:"
+                modetest -c 2>&1 | grep -E "(^[0-9]+|DPMS:)" | tee /tmp/modetest-state.log
+                
+                # Get connector info
+                local connector_info=$(modetest -c 2>/dev/null | grep "connected" | grep -v "disconnected" | head -1)
+                if [ -n "$connector_info" ]; then
+                    local connector_id=$(echo "$connector_info" | awk '{print $1}')
+                    local connector_name=$(echo "$connector_info" | awk '{print $4}' | sed 's/[[:space:]]*$//')
+                    log_info "  Found connector: $connector_name (ID: $connector_id)"
+                    
+                    # Try to set DPMS to On (0)
+                    log_info "  Setting DPMS to 0 (On)"
+                    if modetest -w "${connector_id}:DPMS:0" 2>&1 | tee /tmp/modetest-dpms.log; then
+                        log_info "  modetest succeeded"
+                    else
+                        log_warning "  modetest failed (check /tmp/modetest-dpms.log)"
+                        # Show available properties
+                        log_info "  Available properties for connector $connector_id:"
+                        modetest -c 2>&1 | grep -A20 "^${connector_id}\s" | grep -E "^\s+[0-9]+" | tee -a /tmp/modetest-dpms.log
+                    fi
+                else
+                    log_warning "  No connected display found via modetest"
+                fi
+            else
+                log_warning "  modetest not found"
+            fi
+            echo "modetest" > "$DISPLAY_METHOD_FILE"
+            ;;
+            
+        "vt_switch")
+            log_info "Method 4: VT switch"
+            local current_vt=$(fgconsole 2>/dev/null || echo "1")
+            log_info "  Current VT: $current_vt"
+            log_info "  Switching to VT2..."
+            if chvt 2 2>/dev/null; then
+                sleep 0.2
+                log_info "  Switching back to VT1..."
+                chvt 1 2>/dev/null || log_warning "  chvt 1 failed"
+                log_info "  VT switch completed"
+            else
+                log_warning "  chvt failed - permission issue?"
+            fi
+            echo "vt_switch" > "$DISPLAY_METHOD_FILE"
+            ;;
+    esac
+    
+    log_info "Next launch will test: $(cat "$DISPLAY_METHOD_FILE" 2>/dev/null || echo "unknown")"
 }
 
 # Function: Process cleanup
@@ -169,7 +290,7 @@ switch_to_kodi() {
         # Wait for Kodi to actually start
         if wait_for_process_start "kodi-gbm" 20; then
             echo "kodi" > "$STATE_FILE"
-            wake_display  # Wake again after start
+            #wake_display  # Wake again after start
             log_info "Successfully switched to Kodi"
             return 0
         else
