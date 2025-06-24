@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Configuration
 KODI_VERSION="Omega"
-KODI_REPO="https://github.com/xbmc/xbmc"
+KODI_REPO="https://github.com//Blahkaey/xbmc"
 BUILD_DIR="/tmp/kodi-build"
 SOURCE_DIR="/tmp/kodi-source"
 
