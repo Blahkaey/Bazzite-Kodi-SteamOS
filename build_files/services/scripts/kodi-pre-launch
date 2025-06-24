@@ -58,20 +58,14 @@ set_drm_content_type() {
     return 1
 }
 
-echo "[KODI-PRELAUNCH] Running pre-launch setup as root..."
+echo "[KODI-PRELAUNCH] Running pre-launch setup.."
 echo "[KODI-PRELAUNCH] $(date)"
-
-# Ensure we're on the right TTY
-chvt 1 2>/dev/null || true
-
-# Small delay to ensure TTY is ready
-sleep 0.2
 
 # Set content type to Cinema (2) to disable ALLM
 # This runs as root before kodi takes DRM master
 for attempt in 1 2 3; do
     echo "[KODI-PRELAUNCH] Attempt $attempt of 3"
-    if set_drm_content_type 2; then
+    if set_drm_content_type 3; then
         echo "[KODI-PRELAUNCH] Successfully disabled ALLM/Game Mode"
         exit 0
     fi
