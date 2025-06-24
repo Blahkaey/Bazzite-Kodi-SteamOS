@@ -79,163 +79,30 @@ wait_for_process_start() {
 
 # Function: Smart display wake with learning
 wake_display() {
-    # Read last method used
-    local last_method=$(cat "$DISPLAY_METHOD_FILE" 2>/dev/null || echo "none")
-    local next_method=""
+    log_info "Waking display..."
     
-    # Determine next method to try
-    case "$last_method" in
-        "none"|"drm_rescan")
-            next_method="sysfs"
-            ;;
-        "sysfs")
-            next_method="ddcutil"
-            ;;
-        "ddcutil")
-            next_method="modetest"
-            ;;
-        "modetest")
-            next_method="vt_switch"
-            ;;
-        "vt_switch")
-            next_method="drm_rescan"
-            ;;
-        *)
-            next_method="sysfs"
-            ;;
-    esac
+    # Always perform VT switch to ensure clean display pipeline state
+    # This is especially critical when transitioning from gamescope
+    local current_vt=$(fgconsole 2>/dev/null || echo "1")
     
-    log_info "Testing display wake method: $next_method"
+    # Quick VT cycle to reset display state
+    chvt 2 2>/dev/null || true
+    sleep 0.05  # Minimal delay
+    chvt 1 2>/dev/null || true
+    sleep 0.1   # Give display time to resync
     
-    case "$next_method" in
-        "sysfs")
-            log_info "Method 1: sysfs direct write (checking actual permissions)"
-            local success=false
-            
-            for dpms in /sys/class/drm/card*-*/dpms; do
-                if [ -f "$dpms" ]; then
-                    local status_file="${dpms%/dpms}/status"
-                    local connector=$(basename $(dirname "$dpms"))
-                    local perms=$(stat -c %a "$dpms")
-                    
-                    log_info "  $connector: permissions=$perms, writable=$([[ -w "$dpms" ]] && echo "yes" || echo "no")"
-                    
-                    if [ -f "$status_file" ] && [ "$(cat "$status_file")" = "connected" ]; then
-                        # Try even if not writable to see exact error
-                        log_info "  Attempting write to $connector..."
-                        if echo "On" > "$dpms" 2>/tmp/sysfs-error.log; then
-                            log_info "  Success on $connector"
-                            success=true
-                        else
-                            log_warning "  Write failed: $(cat /tmp/sysfs-error.log 2>/dev/null || echo "Permission denied")"
-                        fi
-                    fi
-                fi
-            done
-            
-            echo "sysfs" > "$DISPLAY_METHOD_FILE"
-            ;;
-            
-        "ddcutil")
-            log_info "Method 2: ddcutil with force and retry"
-            if command -v ddcutil &>/dev/null; then
-                # First try to force communication even if display is asleep
-                log_info "  Forcing communication with sleeping display..."
-                
-                # Try multiple approaches
-                log_info "  Attempt 1: Force with --force-slave-address"
-                ddcutil --force-slave-address setvcp 0xD6 0x01 --bus=6 2>&1 | tee /tmp/ddcutil-force.log
-                
-                log_info "  Attempt 2: With extended sleep multiplier"
-                ddcutil --sleep-multiplier=4.0 setvcp 0xD6 0x01 --bus=6 2>&1 | tee /tmp/ddcutil-sleep.log
-                
-                log_info "  Attempt 3: Skip DDC checks"
-                ddcutil --skip-ddc-checks setvcp 0xD6 0x01 --bus=6 2>&1 | tee /tmp/ddcutil-skip.log
-            else
-                log_warning "  ddcutil not found"
-            fi
-            echo "ddcutil" > "$DISPLAY_METHOD_FILE"
-            ;;
-            
-        "modetest")
-            log_info "Method 3: modetest with atomic commit"
-            if command -v modetest &>/dev/null; then
-                # Get current state
-                local conn_info=$(modetest -c 2>/dev/null | grep -A5 "^[0-9].*connected")
-                log_info "  Current connector state:"
-                echo "$conn_info" | head -10
-                
-                # Try to find DPMS property ID
-                local connector_id=$(modetest -c 2>/dev/null | grep "connected" | grep -v "disconnected" | head -1 | awk '{print $1}')
-                if [ -n "$connector_id" ]; then
-                    log_info "  Using connector ID: $connector_id"
-                    
-                    # Method 1: Direct property set
-                    log_info "  Attempt 1: Direct DPMS property"
-                    modetest -w "${connector_id}:DPMS:0" 2>&1 | tee /tmp/modetest-direct.log
-                    
-                    # Method 2: Try with property ID if we can find it
-                    local dpms_prop=$(modetest -c 2>/dev/null | grep -A20 "^${connector_id}\s" | grep "DPMS:" | awk '{print $1}')
-                    if [ -n "$dpms_prop" ]; then
-                        log_info "  Attempt 2: Using property ID $dpms_prop"
-                        modetest -w "${connector_id}:${dpms_prop}:0" 2>&1 | tee /tmp/modetest-propid.log
-                    fi
-                fi
-            else
-                log_warning "  modetest not found"
-            fi
-            echo "modetest" > "$DISPLAY_METHOD_FILE"
-            ;;
-            
-        "vt_switch")
-            log_info "Method 4: VT switch with force"
-            # Get current VT
-            local current_vt=$(fgconsole 2>/dev/null || echo "1")
-            log_info "  Current VT: $current_vt"
-            
-            # Try multiple VT switches to ensure display wake
-            log_info "  Cycling through VTs..."
-            for vt in 2 3 1; do
-                log_info "  Switching to VT${vt}"
-                chvt $vt 2>/dev/null || log_warning "  chvt $vt failed"
-                sleep 0.1
-            done
-            
-            # Also try to force text mode reset
-            log_info "  Forcing text mode reset"
-            echo 1 > /sys/class/vtconsole/vtcon0/bind 2>/dev/null || true
-            
-            echo "vt_switch" > "$DISPLAY_METHOD_FILE"
-            ;;
-            
-        "drm_rescan")
-            log_info "Method 6: Force DRM connector rescan"
-            # Try to force a connector rescan
-            for connector in /sys/class/drm/card*-*/status; do
-                if [ -f "$connector" ]; then
-                    local conn_name=$(basename $(dirname "$connector"))
-                    log_info "  Triggering rescan on $conn_name"
-                    # Reading status triggers a probe
-                    cat "$connector" > /dev/null
-                    
-                    # Try to force detect if available
-                    local detect_file="${connector%/status}/force"
-                    if [ -f "$detect_file" ]; then
-                        log_info "  Force detecting $conn_name"
-                        echo "detect" > "$detect_file" 2>/dev/null || true
-                    fi
-                fi
-            done
-            
-            # Also try to reload drm module state
-            log_info "  Triggering DRM module reprobe"
-            echo 1 > /sys/class/drm/card0/device/reset 2>/dev/null || true
-            
-            echo "drm_rescan" > "$DISPLAY_METHOD_FILE"
-            ;;
-    esac
+    # Follow up with modetest to ensure DPMS is on
+    # (This worked reliably after VT switch in your tests)
+    #if command -v modetest &>/dev/null; then
+    #    local connector_id=$(modetest -c 2>/dev/null | grep "connected" | grep -v "disconnected" | head -1 | awk '{print $1}')
+    #    if [ -n "$connector_id" ]; then
+    #        modetest -w "${connector_id}:DPMS:0" 2>/dev/null || {
+    #            log_info "modetest DPMS set failed, but VT switch should have woken display"
+    #        }
+    #   fi
+    #fi
     
-    log_info "Next launch will test: $(cat "$DISPLAY_METHOD_FILE" 2>/dev/null || echo "unknown")"
+    log_info "Display wake sequence completed"
 }
 
 # Function: Process cleanup
