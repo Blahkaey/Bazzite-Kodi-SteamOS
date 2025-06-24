@@ -116,6 +116,21 @@ wake_display() {
     fi
 }
 
+wake_display_drm_sysfs() {
+    local card
+    for card in /sys/class/drm/card*/; do
+        # Force DPMS on via sysfs
+        echo "on" > "${card}dpms" 2>/dev/null || true
+        
+        # Force a detect cycle
+        for connector in "${card}"card*-*/status; do
+            if [[ -f "$connector" ]]; then
+                echo "detect" > "$connector" 2>/dev/null || true
+            fi
+        done
+    done
+}
+
 # Function: Process cleanup
 cleanup_processes() {
     local target="$1"
@@ -182,14 +197,14 @@ switch_to_kodi() {
     chvt 1 2>/dev/null || true
 
     # Wake display before starting
-    wake_display
+    wake_display_drm_sysfs
 
     # Start Kodi
     if systemctl start kodi-gbm.service; then
         # Wait for Kodi to actually start
         if wait_for_process_start "kodi-gbm" 20; then
             echo "kodi" > "$STATE_FILE"
-            #wake_display  # Wake again after start
+            wake_display_drm_sysfs  # Wake again after start
             log_info "Successfully switched to Kodi"
             return 0
         else

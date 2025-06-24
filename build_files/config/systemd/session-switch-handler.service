@@ -1,5 +1,4 @@
 [Unit]
-Description=Optimized Session Switch Handler
 After=multi-user.target
 Before=sddm.service kodi-gbm.service
 
