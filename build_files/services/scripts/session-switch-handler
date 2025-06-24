@@ -45,6 +45,9 @@ if [[ ! -f "$STATE_FILE" ]]; then
 fi
 chmod 644 "$STATE_FILE"
 
+# Reset display init flag on daemon start
+rm -f /var/run/display-vt-initialized
+
 log_info "Session switch handler started"
 
 # Function: Wait for process to exit with timeout
@@ -77,30 +80,42 @@ wait_for_process_start() {
     pgrep -x "$process_name" >/dev/null
 }
 
-# Function: Smart display wake with learning
+# Function: Wakes display
 wake_display() {
     log_info "Waking display..."
     
-    # Always perform VT switch to ensure clean display pipeline state
-    # This is especially critical when transitioning from gamescope
-    local current_vt=$(fgconsole 2>/dev/null || echo "1")
+    # Check if we've done the initial VT switch setup
+    local vt_init_file="/var/run/display-vt-initialized"
     
-    # Quick VT cycle to reset display state
-    chvt 2 2>/dev/null || true
-    sleep 0.05  # Minimal delay
-    chvt 1 2>/dev/null || true
-    sleep 0.1   # Give display time to resync
+    if [ ! -f "$vt_init_file" ]; then
+        log_info "First transition from gaming - performing VT switch to initialize display pipeline"
+        
+        # Perform VT cycle to reset display state
+        local current_vt=$(fgconsole 2>/dev/null || echo "1")
+        chvt 2 2>/dev/null || true
+        sleep 0.05
+        chvt 1 2>/dev/null || true
+        sleep 0.1
+        
+        # Mark that we've done the initial VT switch
+        touch "$vt_init_file"
+        log_info "Display pipeline initialized via VT switch"
+    fi
     
-    # Follow up with modetest to ensure DPMS is on
-    # (This worked reliably after VT switch in your tests)
-    #if command -v modetest &>/dev/null; then
-    #    local connector_id=$(modetest -c 2>/dev/null | grep "connected" | grep -v "disconnected" | head -1 | awk '{print $1}')
-    #    if [ -n "$connector_id" ]; then
-    #        modetest -w "${connector_id}:DPMS:0" 2>/dev/null || {
-    #            log_info "modetest DPMS set failed, but VT switch should have woken display"
-    #        }
-    #   fi
-    #fi
+    # Use modetest for DPMS control (works after initial VT switch)
+    if command -v modetest &>/dev/null; then
+        local connector_id=$(modetest -c 2>/dev/null | grep "connected" | grep -v "disconnected" | head -1 | awk '{print $1}')
+        if [ -n "$connector_id" ]; then
+            log_info "Setting DPMS on via modetest (connector $connector_id)"
+            modetest -w "${connector_id}:DPMS:0" 2>/dev/null || {
+                log_warning "modetest DPMS set failed"
+            }
+        else
+            log_warning "No connected display found for modetest"
+        fi
+    else
+        log_warning "modetest not available"
+    fi
     
     log_info "Display wake sequence completed"
 }
