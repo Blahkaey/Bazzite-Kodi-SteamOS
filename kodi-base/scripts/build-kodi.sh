@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Configuration
 KODI_VERSION="Omega"
-KODI_REPO="https://github.com/xbmc/xbmc"
+KODI_REPO="https://github.com//Blahkaey/xbmc"
 BUILD_DIR="/tmp/kodi-build"
 SOURCE_DIR="/tmp/kodi-source"
 
@@ -11,7 +11,7 @@ echo "[INFO] Building Kodi ${KODI_VERSION}..."
 
 # Clone source
 echo "[INFO] Cloning Kodi repository..."
-git clone --depth=1 "${KODI_REPO}" "${SOURCE_DIR}"
+git clone --depth=1 --branch="${KODI_VERSION}" "${KODI_REPO}" "${SOURCE_DIR}"
 
 # Create build directory
 mkdir -p "${BUILD_DIR}"
