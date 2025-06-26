@@ -49,7 +49,7 @@ main() {
     install_kodi_dependencies
 
     # Add additional dependencies
-    dnf5 -y install inotify-tools drm-utils drm_info edid-decode
+    dnf5 -y install inotify-tools drm-utils drm_info edid-decode java-21-openjdk
 
     run_stage "Installing polkit rules" "/bin/bash /ctx/services/install-polkit.sh"
     run_stage "Installing session switching system" "/bin/bash /ctx/services/install-session-switching.sh"
