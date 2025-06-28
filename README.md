@@ -18,7 +18,7 @@ This project enhances Bazzite (a SteamOS-like Linux distribution) by adding:
 - Add the Favorites menu to any button in the skin for easy access
 
 **From Gaming Mode (Steam):**
-- The main navigation menu containts the kodi launch button
+- The main navigation menu contains the kodi launch button
 
 
 **From Command Line:**
