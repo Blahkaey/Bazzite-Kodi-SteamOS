@@ -1,0 +1,181 @@
+#!/bin/bash
+#
+# Kodi First Boot Setup
+# Sets up Kodi favorites and installs DeckyLoader plugin
+#
+
+set -euo pipefail
+
+# Marker file to ensure this only runs once
+FIRSTBOOT_MARKER="/var/lib/kodi/.kodi-firstboot-complete"
+
+# Logging
+log_info() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] KODI-FIRSTBOOT: $@" | systemd-cat -t kodi-firstboot -p info
+}
+
+log_error() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] KODI-FIRSTBOOT ERROR: $@" | systemd-cat -t kodi-firstboot -p err
+}
+
+# Check if already run
+if [ -f "$FIRSTBOOT_MARKER" ]; then
+    log_info "First boot setup already completed, exiting"
+    exit 0
+fi
+
+log_info "Starting Kodi first boot setup"
+
+# Setup Kodi favorites and scripts
+setup_kodi_files() {
+    log_info "Setting up Kodi user files"
+
+    local kodi_userdata="/var/lib/kodi/.kodi/userdata"
+    local scripts_dir="$kodi_userdata/scripts"
+    local favourites_file="$kodi_userdata/favourites.xml"
+
+    # Create directories
+    mkdir -p "$kodi_userdata" "$scripts_dir"
+
+    # Create/update favourites.xml
+    if [ -f "$favourites_file" ]; then
+        log_info "Updating existing favourites.xml"
+        # Create temp file with new entry
+        cat > /tmp/new_favourite.xml << 'EOF'
+<favourites>
+    <favourite name="Switch To GameMode">RunScript(special://masterprofile/scripts/exit_to_gamemode.py)</favourite>
+EOF
+        # Extract existing favorites (skip the opening tag)
+        tail -n +2 "$favourites_file" >> /tmp/new_favourite.xml
+        mv /tmp/new_favourite.xml "$favourites_file"
+    else
+        log_info "Creating new favourites.xml"
+        cat > "$favourites_file" << 'EOF'
+<favourites>
+    <favourite name="Switch To GameMode">RunScript(special://masterprofile/scripts/exit_to_gamemode.py)</favourite>
+</favourites>
+EOF
+    fi
+
+    # Create exit_to_gamemode.py script
+    log_info "Creating exit_to_gamemode.py script"
+    cat > "$scripts_dir/exit_to_gamemode.py" << 'EOF'
+#!/usr/bin/env python3
+import xbmc
+import subprocess
+from datetime import datetime
+
+def log(msg, level=xbmc.LOGINFO):
+    xbmc.log(f"[KODI-EXIT] {msg}", level)
+
+def main():
+    log("=== Kodi exit script started ===")
+    log(f"Script called at: {datetime.now()}")
+
+    try:
+        user_result = subprocess.run(['whoami'], capture_output=True, text=True)
+        log(f"Running as user: {user_result.stdout.strip()}")
+
+        log("Executing: /usr/bin/kodi-request-gamemode")
+        result = subprocess.run(
+            ['/usr/bin/kodi-request-gamemode'],
+            capture_output=True,
+            text=True,
+            timeout=30  # 30 second timeout
+        )
+
+        log(f"Return code: {result.returncode}")
+        if result.stdout:
+            log(f"STDOUT: {result.stdout}")
+        if result.stderr:
+            log(f"STDERR: {result.stderr}", xbmc.LOGERROR)
+
+        if result.returncode == 0:
+            msg = 'Succeeded'
+            log("Switch to gamemode succeeded")
+        else:
+            msg = f'Failed (code: {result.returncode})'
+            log(f"Switch to gamemode failed with code: {result.returncode}", xbmc.LOGERROR)
+
+        xbmc.executebuiltin('Notification("Switch to GameMode", "%s")' % msg)
+
+    except subprocess.TimeoutExpired:
+        log("Command timed out after 30 seconds", xbmc.LOGERROR)
+        xbmc.executebuiltin('Notification("Switch to GameMode", "Timeout")')
+    except Exception as e:
+        log(f"Unexpected error: {str(e)}", xbmc.LOGFATAL)
+        xbmc.executebuiltin('Notification("Switch to GameMode", "Error: %s")' % str(e))
+    finally:
+        log("=== Kodi exit script finished ===")
+
+if __name__ == "__main__":
+    main()
+EOF
+
+    # Set permissions
+    chmod +x "$scripts_dir/exit_to_gamemode.py"
+
+    # Fix ownership for all created files
+    chown -R kodi:kodi "$kodi_userdata"
+
+    log_info "Kodi files setup completed"
+}
+
+# Install DeckyLoader plugin
+install_deckyloader_plugin() {
+    log_info "Installing DeckyLoader KodiLauncher plugin"
+
+    # Find the main user (first user with UID >= 1000)
+    local main_user=$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' | head -1)
+
+    if [ -z "$main_user" ]; then
+        log_error "Could not find main user for DeckyLoader plugin installation"
+        return 1
+    fi
+
+    local user_home=$(getent passwd "$main_user" | cut -d: -f6)
+    local plugin_dir="$user_home/homebrew/plugins/KodiLauncher"
+
+    log_info "Installing plugin for user: $main_user (home: $user_home)"
+
+    # Create plugin directory
+    mkdir -p "$plugin_dir"
+
+    # Download and extract plugin
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir"
+
+    if wget -q "https://github.com/Blahkaey/KodiLauncher/releases/latest/download/KodiLauncher.zip" -O KodiLauncher.zip; then
+        if unzip -q KodiLauncher.zip -d "$plugin_dir"; then
+            log_info "KodiLauncher plugin extracted successfully"
+
+            # Fix ownership
+            chown -R "$main_user:$main_user" "$user_home/homebrew"
+
+            log_info "DeckyLoader plugin installation completed"
+        else
+            log_error "Failed to extract KodiLauncher.zip"
+        fi
+    else
+        log_error "Failed to download KodiLauncher.zip"
+    fi
+
+    # Cleanup
+    cd /
+    rm -rf "$temp_dir"
+}
+
+# Main execution
+main() {
+    setup_kodi_files
+    install_deckyloader_plugin
+
+    # Create marker file
+    touch "$FIRSTBOOT_MARKER"
+    chown kodi:kodi "$FIRSTBOOT_MARKER"
+
+    log_info "First boot setup completed successfully"
+}
+
+# Run main
+main

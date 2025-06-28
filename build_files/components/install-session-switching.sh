@@ -7,7 +7,7 @@ install_session_switch_handler() {
     log_subsection "Installing session switch handler daemon"
 
     # Install the daemon script
-    cp /ctx/services/scripts/session-switch-handler /usr/bin/
+    cp /ctx/components/system-scripts/session-switch-handler /usr/bin/
     chmod +x /usr/bin/session-switch-handler
 
     # Install systemd service
@@ -23,9 +23,9 @@ install_session_request_scripts() {
     log_subsection "Installing session request scripts"
 
     # Install user-facing commands
-    cp /ctx/services/scripts/request-kodi /usr/bin/
-    cp /ctx/services/scripts/request-gamemode /usr/bin/
-    cp /ctx/services/scripts/kodi-request-gamemode /usr/bin/
+    cp /ctx/components/system-scripts/request-kodi /usr/bin/
+    cp /ctx/components/system-scripts/request-gamemode /usr/bin/
+    cp /ctx/components/system-scripts/kodi-request-gamemode /usr/bin/
 
     chmod +x /usr/bin/request-kodi
     chmod +x /usr/bin/request-gamemode
@@ -34,7 +34,6 @@ install_session_request_scripts() {
     log_success "Session request scripts installed"
 }
 
-# Main execution
 install_session_switch_handler
 install_session_request_scripts
 

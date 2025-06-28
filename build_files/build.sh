@@ -42,20 +42,17 @@ install_kodi_dependencies() {
     dnf clean all
 }
 
-# Main build process
 main() {
     log_section "Bazzite-Kodi-SteamOS Build Process"
 
-    ls /home/
-
     install_kodi_dependencies
 
-    # Add additional dependencies
     dnf5 -y install inotify-tools drm-utils drm_info edid-decode java-21-openjdk
 
-    run_stage "Installing polkit rules" "/bin/bash /ctx/services/install-polkit.sh"
-    run_stage "Installing session switching system" "/bin/bash /ctx/services/install-session-switching.sh"
-    run_stage "Setting up Kodi service" "/bin/bash /ctx/services/install-kodi-service.sh"
+    run_stage "Installing polkit rules" "/bin/bash /ctx/components/install-polkit.sh"
+    run_stage "Installing session switching system" "/bin/bash /ctx/components/install-session-switching.sh"
+    run_stage "Setting up Kodi service" "/bin/bash /ctx/components/install-kodi-service.sh"
+    run_stage "Installing first boot setup" "/bin/bash /ctx/components/install-firstboot.sh"
 
     log_success "Bazzite-Kodi-SteamOS build completed successfully!"
 }
@@ -74,5 +71,4 @@ run_stage() {
     log_success "$stage_name completed"
 }
 
-# Run main function
 main "$@"
