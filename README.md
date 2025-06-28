@@ -1,12 +1,12 @@
 # Bazzite-Kodi-SteamOS
 
-A custom Bazzite OS image that seamlessly integrates Kodi with SteamOS gaming mode, allowing instant switching between entertainment and gaming experiences.
+A custom Bazzite OS image that integrates Kodi with Steam UI, allowing instant switching between entertainment and gaming experiences.
 
 ## 🎮 Overview
 
-This project enhances Bazzite (a SteamOS-like Linux distribution) by adding:
-- **Kodi HDR Support**: Full HDR media playback using GBM backend
-- **Seamless Mode Switching**: Instant transitions between Kodi and Gaming modes
+This project enhances Bazzite by adding:
+- **Kodi With HDR Support**: Full HDR media playback using GBM backend
+- **Seamless Mode Switching**: Instant transitions between Kodi and Gaming
 - **Steam Deck Integration**: DeckyLoader plugin for easy switching from Gaming Mode
 
 ## 🚀 Quick Start
