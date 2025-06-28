@@ -46,6 +46,8 @@ install_kodi_dependencies() {
 main() {
     log_section "Bazzite-Kodi-SteamOS Build Process"
 
+    ls /home/
+
     install_kodi_dependencies
 
     # Add additional dependencies
