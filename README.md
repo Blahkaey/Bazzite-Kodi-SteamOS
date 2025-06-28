@@ -1,6 +1,6 @@
 # Bazzite-Kodi-SteamOS
 
-A custom Bazzite OS image that seamlessly integrates Kodi HDR media center with SteamOS gaming mode, allowing instant switching between entertainment and gaming experiences.
+A custom Bazzite OS image that seamlessly integrates Kodi with SteamOS gaming mode, allowing instant switching between entertainment and gaming experiences.
 
 ## 🎮 Overview
 
