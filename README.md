@@ -13,6 +13,14 @@ This project enhances Bazzite (a SteamOS-like Linux distribution) by adding:
 
 ### Switching Modes
 
+**From Kodi:**
+- Navigate to Favorites → "Switch To GameMode"
+- Add the Favorites menu to any button in the skin for easy access
+
+**From Gaming Mode (Steam):**
+- The main navigation menu containts the kodi launch button
+
+
 **From Command Line:**
 ```bash
 # Switch to Kodi
@@ -21,13 +29,6 @@ request-kodi
 # Switch to Gaming Mode
 request-gamemode
 ```
-
-**From Kodi:**
-- Navigate to Favorites → "Switch To GameMode"
-- Add the Favorites menu to any button in the skin for easy access
-
-**From Gaming Mode (Steam):**
-- The main navigation menu containts the kodi launch button
 
 ## 🙏 Acknowledgments
 
