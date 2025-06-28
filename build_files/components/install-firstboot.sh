@@ -4,11 +4,11 @@ set -euo pipefail
 source "/ctx/utility.sh"
 
 install_firstboot_setup() {
-    log_subsection "Installing Kodi first boot setup"
+    log_subsection "Installing first boot setup"
 
     # Install the script
-    cp /ctx/components/system-scripts/kodi-first-boot-setup /usr/bin/
-    chmod +x /usr/bin/kodi-first-boot-setup
+    cp /ctx/components/system-scripts/first-boot-setup /usr/bin/
+    chmod +x /usr/bin/first-boot-setup
 
     # Install systemd service
     cp /ctx/config/systemd/kodi-firstboot.service /usr/lib/systemd/system/

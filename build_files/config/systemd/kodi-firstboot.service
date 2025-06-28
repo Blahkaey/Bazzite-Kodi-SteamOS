@@ -1,5 +1,5 @@
 [Unit]
-Description=Kodi First Boot Setup
+Description=First Boot Setup
 After=multi-user.target network-online.target
 Before=kodi-gbm.service
 ConditionPathExists=!/var/lib/kodi/.kodi-firstboot-complete
