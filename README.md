@@ -2,14 +2,14 @@
 
 A custom Bazzite OS image that integrates Kodi with Steam UI, allowing instant switching between entertainment and gaming experiences.
 
-## 🎮 Overview
+## Overview
 
 This project enhances Bazzite by adding:
 - **Kodi With HDR Support**: Full HDR media playback using GBM backend
 - **Seamless Mode Switching**: Instant transitions between Kodi and Gaming
 - **Steam Deck Integration**: DeckyLoader plugin for easy switching from Gaming Mode
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Switching Modes
 
@@ -30,7 +30,7 @@ request-kodi
 request-gamemode
 ```
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - Bazzite team for the excellent gaming-focused distribution
 - Kodi team for GBM/HDR implementation
