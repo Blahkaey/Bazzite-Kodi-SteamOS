@@ -3,15 +3,6 @@ set -euo pipefail
 
 source "/ctx/utility.sh"
 
-install_kodi_pre_launch() {
-    log_subsection "Installing Kodi pre-launch script"
-
-    cp /ctx/components/system-scripts/kodi-pre-launch /usr/bin/
-    chmod +x /usr/bin/kodi-pre-launch
-
-    log_success "Kodi pre-launch script installed"
-}
-
 patch_kodi_standalone() {
     log_subsection "Installing optimized kodi-standalone script"
 
@@ -55,7 +46,6 @@ install_kodi_gbm_service() {
     log_success "kodi-gbm service installed"
 }
 
-install_kodi_pre_launch
 patch_kodi_standalone
 setup_kodi_system_files
 install_kodi_gbm_service
