@@ -39,7 +39,7 @@ request-gamemode
 ## Modifications to Kodi
 This distribution includes the following modifications to standard Kodi:
 - Built with GBM platform and HDR support (custom CMake flags)
-- Added HDMI content type setting for proper HDR signaling
+- Added HDMI content type setting to signal display to disable ALLM
 
 ## Support
 - **For issues with this distribution**: https://github.com/Blahkaey/Bazzite-Kodi-SteamOS/issues
