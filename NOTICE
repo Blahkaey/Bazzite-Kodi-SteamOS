@@ -11,7 +11,6 @@ Modified source: https://github.com/Blahkaey/xbmc (Omega branch)
 
 Modifications:
 - Custom CMake build flags for GBM/HDR support
-- Modified kodi-standalone startup script
 - Added HDMI content type setting for HDR signaling
 
 Support for this distribution: https://github.com/Blahkaey/Bazzite-Kodi-SteamOS/issues
