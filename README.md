@@ -2,12 +2,6 @@
 
 A custom Bazzite OS image that seamlessly integrates Kodi with Steam's Gaming Mode. Features the KodiLauncher DeckyLoader plugin which adds a dedicated Kodi button to Steam's main navigation menu, enabling users to instantly switch between Kodi and Steam's gaming UI.
 
-
-**IMPORTANT: This project contains a modified distribution of Kodi™ Media Center. It is NOT endorsed by, affiliated with, or a product of the XBMC Foundation. Kodi® is a registered trademark of the XBMC Foundation.**
-
-**Original Kodi source:** https://github.com/xbmc/xbmc  
-**Modified source:** https://github.com/Blahkaey/xbmc (Omega branch)
-
 ## Overview
 
 This project enhances Bazzite by adding:
@@ -48,6 +42,13 @@ request-kodi
 # Switch to Gaming Mode
 request-gamemode
 ```
+
+## IMPORTANT
+**This project contains a modified distribution of Kodi™ Media Center. It is NOT endorsed by, affiliated with, or a product of the XBMC Foundation. Kodi® is a registered trademark of the XBMC Foundation.**
+
+**Original Kodi source:** https://github.com/xbmc/xbmc  
+**Modified source:** https://github.com/Blahkaey/xbmc (Omega branch)
+
 
 ## Modifications to Kodi
 This distribution includes the following modifications to standard Kodi:
