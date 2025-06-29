@@ -2,9 +2,11 @@
 
 A custom Bazzite OS image that integrates Kodi with Steam UI, allowing instant switching between entertainment and gaming experiences.
 
-## Important Notice
 
-This is a modified distribution of Kodi™ Media Center. It is not affiliated with, endorsed by, or supported by the XBMC Foundation. Kodi® is a registered trademark of the XBMC Foundation.
+**IMPORTANT: This is a modified distribution of Kodi™ Media Center. It is NOT endorsed by, affiliated with, or a product of the XBMC Foundation. Kodi® is a registered trademark of the XBMC Foundation.**
+
+**Original Kodi source:** https://github.com/xbmc/xbmc  
+**Modified source:** https://github.com/Blahkaey/xbmc (Omega branch)
 
 ## Overview
 
@@ -35,15 +37,11 @@ request-gamemode
 ```
 
 ## Modifications to Kodi
-
 This distribution includes the following modifications to standard Kodi:
 - Built with GBM platform and HDR support (custom CMake flags)
 - Added HDMI content type setting for proper HDR signaling
 
-Modified Kodi source available at: https://github.com/Blahkaey/xbmc (Omega branch)
-
 ## Support
-
 - **For issues with this distribution**: https://github.com/Blahkaey/Bazzite-Kodi-SteamOS/issues
 - **For general Kodi support**: https://forum.kodi.tv/
 
