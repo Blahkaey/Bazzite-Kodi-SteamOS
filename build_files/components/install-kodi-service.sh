@@ -3,15 +3,6 @@ set -euo pipefail
 
 source "/ctx/utility.sh"
 
-patch_kodi_standalone() {
-    log_subsection "Installing optimized kodi-standalone script"
-
-    cp /ctx/components/system-scripts/kodi-standalone /usr/bin/
-    chmod +x /usr/bin/kodi-standalone
-
-    log_success "kodi-standalone script installed"
-}
-
 setup_kodi_system_files() {
     log_subsection "Setting up Kodi system configuration"
 
@@ -46,7 +37,6 @@ install_kodi_gbm_service() {
     log_success "kodi-gbm service installed"
 }
 
-patch_kodi_standalone
 setup_kodi_system_files
 install_kodi_gbm_service
 

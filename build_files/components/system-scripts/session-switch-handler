@@ -188,7 +188,7 @@ switch_to_kodi() {
     # Start Kodi
     if systemctl start kodi-gbm.service; then
         # Wait for Kodi to actually start
-        if wait_for_process_start "kodi-gbm" 20; then
+        if wait_for_process_start "kodi" 20; then
             echo "kodi" > "$STATE_FILE"
             #wake_display  # Wake again after start
             log_info "Successfully switched to Kodi"
@@ -208,7 +208,7 @@ switch_to_kodi() {
     sleep 0.5
 
     if systemctl start kodi-gbm.service; then
-        if wait_for_process_start "kodi-gbm" 20; then
+        if wait_for_process_start "kodi" 20; then
             echo "kodi" > "$STATE_FILE"
             wake_display
             log_info "Recovery successful - Kodi started"
@@ -244,7 +244,7 @@ switch_to_gamemode() {
         systemctl stop kodi-gbm.service || true
 
         # Wait for Kodi to exit
-        wait_for_process_exit "kodi-gbm" 20 || {
+        wait_for_process_exit "kodi" 20 || {
             log_warning "Kodi didn't exit cleanly, continuing anyway"
         }
     fi

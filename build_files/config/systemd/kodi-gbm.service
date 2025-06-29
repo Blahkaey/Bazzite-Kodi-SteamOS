@@ -12,8 +12,8 @@ TTYPath=/dev/tty1
 
 Environment="HOME=/var/lib/kodi"
 
-ExecStart=/usr/bin/kodi-standalone
-ExecStop=-/usr/bin/killall --exact kodi-gbm
+ExecStart=/usr/bin/kodi-standalone --windowing=gbm
+ExecStop=-/usr/bin/killall --exact kodi
 
 Restart=on-failure
 RestartSec=5s
