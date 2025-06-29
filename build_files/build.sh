@@ -45,6 +45,8 @@ install_kodi_dependencies() {
 main() {
     log_section "Bazzite-Kodi-SteamOS Build Process"
 
+    ujust setup-decky
+
     install_kodi_dependencies
 
     dnf5 -y install inotify-tools drm-utils drm_info edid-decode java-21-openjdk
