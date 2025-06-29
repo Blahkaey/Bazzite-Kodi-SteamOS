@@ -25,11 +25,24 @@ Kodi itself includes components under various compatible licenses including:
 For complete information about licenses for Kodi's dependencies and included components, 
 please refer to: https://github.com/xbmc/xbmc/tree/master/LICENSES
 
+## Source Code Availability
+
+In compliance with GPL-2.0-or-later:
+
+- **Original Kodi source**: https://github.com/xbmc/xbmc
+- **Modified Kodi source**: https://github.com/Blahkaey/xbmc (Omega branch)
+  - Includes build configuration changes
+  - Modified kodi-standalone script
+  - HDMI content type additions
+
+All modifications are available in the above repository and in this project's build scripts.
+
 ## Compliance
 
 This project complies with all applicable licenses:
 - Source code for Kodi is available at https://github.com/xbmc/xbmc
-- All modifications to Kodi are documented in our build scripts
+- All modifications to Kodi made by this project are also provided under
+GPL-2.0-or-later and can be found in this repository's build scripts
 - All original copyright notices and attributions are preserved
 
 ## Trademark Notice
