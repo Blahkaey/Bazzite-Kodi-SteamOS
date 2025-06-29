@@ -34,7 +34,7 @@ In compliance with GPL-2.0-or-later:
   - Includes build configuration changes
   - HDMI content type additions
 
-All modifications are available in the above repository and in this project's build scripts.
+All modifications are available in the above repository.
 
 ## Compliance
 
