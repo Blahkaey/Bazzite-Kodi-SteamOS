@@ -15,6 +15,24 @@ This project enhances Bazzite by adding:
 - **Seamless Mode Switching**: Instant transitions between Kodi and Gaming
 - **Steam UI Integration**: DeckyLoader plugin - [KodiLauncher](https://github.com/Blahkaey/KodiLauncher) which adds a button to the main navigation menu
 
+## Installation
+
+### Option 1: Install the Pre-built Image
+
+Download and install the Bazzite-Kodi-SteamOS image directly: NOT CURRENTLY AVAILABLE
+
+### Option 2: Rebase from an Existing Universal Blue System
+If you're already running a Universal Blue derived image (Bazzite, Bluefin, Aurora, etc.), you can rebase to this image:
+
+```bash
+# Rebase to Bazzite-Kodi-SteamOS
+rpm-ostree rebase ostree-image-signed:docker://ghcr.io/blahkaey/bazzite-kodi-steamos:latest
+
+# Reboot to apply changes
+systemctl reboot
+```
+
+
 ## Quick Start
 
 ### Switching Modes
