@@ -32,10 +32,9 @@ In compliance with GPL-2.0-or-later:
 - **Original Kodi source**: https://github.com/xbmc/xbmc
 - **Modified Kodi source**: https://github.com/Blahkaey/xbmc (Omega branch)
   - Includes build configuration changes
-  - Modified kodi-standalone script
   - HDMI content type additions
 
-All modifications are available in the above repository and in this project's build scripts.
+All modifications are available in the above repository.
 
 ## Compliance
 
