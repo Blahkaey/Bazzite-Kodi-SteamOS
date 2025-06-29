@@ -3,8 +3,6 @@
 A custom Bazzite OS image that seamlessly integrates Kodi with Steam's Gaming Mode. Features the KodiLauncher DeckyLoader plugin which adds a dedicated Kodi button to Steam's main navigation menu, enabling users to instantly switch between Kodi and Steam's gaming UI.
 
 
-
-
 **IMPORTANT: This is a modified distribution of Kodi™ Media Center. It is NOT endorsed by, affiliated with, or a product of the XBMC Foundation. Kodi® is a registered trademark of the XBMC Foundation.**
 
 **Original Kodi source:** https://github.com/xbmc/xbmc  
@@ -15,7 +13,7 @@ A custom Bazzite OS image that seamlessly integrates Kodi with Steam's Gaming Mo
 This project enhances Bazzite by adding:
 - **Kodi With HDR Support**: Full HDR media playback using GBM backend
 - **Seamless Mode Switching**: Instant transitions between Kodi and Gaming
-- **Steam UI Integration**: DeckyLoader plugin - KodiLauncher which adds a launch button to the main navigation menu
+- **Steam UI Integration**: DeckyLoader plugin - [KodiLauncher](https://github.com/Blahkaey/KodiLauncher) which adds a button to the main navigation menu
 
 ## Quick Start
 
@@ -44,7 +42,7 @@ This distribution includes the following modifications to standard Kodi:
 - Added HDMI content type setting to signal display to disable ALLM
 
 ## Support
-- **For issues with this distribution**: https://github.com/Blahkaey/Bazzite-Kodi-SteamOS/issues
+- **For issues with this distribution**: [Issues](https://github.com/Blahkaey/Bazzite-Kodi-SteamOS/issues)
 - **For general Kodi support**: https://forum.kodi.tv/
 
 Please clearly state you're using a modified distribution when seeking help on official Kodi forums.
