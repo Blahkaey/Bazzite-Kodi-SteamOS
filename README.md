@@ -46,3 +46,10 @@ This distribution includes the following modifications to standard Kodi:
 - **For general Kodi support**: https://forum.kodi.tv/
 
 Please clearly state you're using a modified distribution when seeking help on official Kodi forums.
+
+## Credits
+
+- **[Bazzite](https://github.com/ublue-os/bazzite)** - The excellent gaming focused Fedora Atomic desktop this project builds upon
+- **[Universal Blue](https://universal-blue.org/)** - For creating the framework that makes custom OS images like this possible
+- **[Kodi/XBMC](https://kodi.tv/)** - The amazing media center at the heart of this project
+- **[DeckyLoader](https://github.com/SteamDeckHomebrew/decky-loader)** - For the plugin framework that makes the KodiLauncher possible
