@@ -14,7 +14,7 @@ install_firstboot_setup() {
     cp /ctx/config/systemd/kodi-firstboot.service /usr/lib/systemd/system/
 
     # Enable the service
-    systemctl enable kodi-firstboot.service
+    systemctl enable firstboot.service
 
     log_success "First boot setup installed"
 }

@@ -1,0 +1,85 @@
+#!/bin/bash
+#
+# First Boot Setup
+#
+
+set -euo pipefail
+
+# Marker file to ensure this only runs once
+FIRSTBOOT_MARKER="/var/lib/kodi/.kodi-firstboot-complete"
+
+# Logging
+log_info() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] KODI-FIRSTBOOT: $@" | systemd-cat -t kodi-firstboot -p info
+}
+
+log_error() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] KODI-FIRSTBOOT ERROR: $@" | systemd-cat -t kodi-firstboot -p err
+}
+
+# Check if already run
+if [ -f "$FIRSTBOOT_MARKER" ]; then
+    log_info "First boot setup already completed, exiting"
+    exit 0
+fi
+
+log_info "Starting first boot setup"
+
+
+# Install DeckyLoader plugin
+install_deckyloader_plugin() {
+    log_info "Installing DeckyLoader KodiLauncher plugin"
+
+    # Find the main user (first user with UID >= 1000)
+    local main_user=$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' | head -1)
+
+    if [ -z "$main_user" ]; then
+        log_error "Could not find main user for DeckyLoader plugin installation"
+        return 1
+    fi
+
+    local user_home=$(getent passwd "$main_user" | cut -d: -f6)
+    local plugin_dir="$user_home/homebrew/plugins/KodiLauncher"
+
+    log_info "Installing plugin for user: $main_user (home: $user_home)"
+
+    # Create plugin directory
+    mkdir -p "$plugin_dir"
+
+    # Download and extract plugin
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir"
+
+    if wget -q "https://github.com/Blahkaey/KodiLauncher/releases/latest/download/KodiLauncher.zip" -O KodiLauncher.zip; then
+        if unzip -q KodiLauncher.zip -d "$plugin_dir"; then
+            log_info "KodiLauncher plugin extracted successfully"
+
+            # Fix ownership
+            chown -R "$main_user:$main_user" "$user_home/homebrew"
+
+            log_info "DeckyLoader plugin installation completed"
+        else
+            log_error "Failed to extract KodiLauncher.zip"
+        fi
+    else
+        log_error "Failed to download KodiLauncher.zip"
+    fi
+
+    # Cleanup
+    cd /
+    rm -rf "$temp_dir"
+}
+
+# Main execution
+main() {
+    install_deckyloader_plugin
+
+    # Create marker file
+    touch "$FIRSTBOOT_MARKER"
+    chown kodi:kodi "$FIRSTBOOT_MARKER"
+
+    log_info "First boot setup completed successfully"
+}
+
+# Run main
+main

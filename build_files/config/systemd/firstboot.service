@@ -2,11 +2,11 @@
 Description=First Boot Setup
 After=multi-user.target network-online.target
 Before=kodi-gbm.service
-ConditionPathExists=!/var/lib/kodi/.kodi-firstboot-complete
+ConditionPathExists=!/var/lib/kodi/.firstboot-complete
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/kodi-first-boot-setup
+ExecStart=/usr/bin/first-boot-setup
 RemainAfterExit=yes
 StandardOutput=journal
 StandardError=journal
