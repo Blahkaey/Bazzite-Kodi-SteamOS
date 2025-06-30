@@ -1,0 +1,95 @@
+#!/bin/bash
+
+set -euo pipefail
+
+log_info() {
+    echo "[KodiLauncher Update] $@"
+}
+
+log_error() {
+    echo "[KodiLauncher Update] ERROR: $@" >&2
+}
+
+get_latest_version() {
+    local api_url="https://api.github.com/repos/Blahkaey/KodiLauncher/releases/latest"
+    local version=$(curl -s "$api_url" | grep '"tag_name"' | cut -d'"' -f4)
+
+    if [ -z "$version" ]; then
+        log_error "Failed to fetch latest version"
+        return 1
+    fi
+
+    echo "$version"
+}
+
+get_installed_version() {
+    local version_file="/var/lib/kodi/.kodilauncher-version"
+    if [ -f "$version_file" ]; then
+        cat "$version_file"
+    else
+        echo "none"
+    fi
+}
+
+main() {
+    main_user=$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' | head -1)
+    if [ -z "$main_user" ]; then
+        log_error "Could not find main user"
+        exit 1
+    fi
+
+    user_home=$(getent passwd "$main_user" | cut -d: -f6)
+    plugin_dir="$user_home/homebrew/plugins/KodiLauncher"
+
+    installed_version=$(get_installed_version)
+    latest_version=$(get_latest_version)
+
+    if [ -z "$latest_version" ]; then
+        log_error "Could not determine latest version"
+        exit 1
+    fi
+
+    log_info "Installed version: $installed_version"
+    log_info "Latest version: $latest_version"
+
+    if [ "$installed_version" = "$latest_version" ]; then
+        log_info "KodiLauncher is already up to date!"
+        exit 0
+    fi
+
+    log_info "Updating KodiLauncher to $latest_version..."
+
+    if [ -d "$plugin_dir" ]; then
+        rm -rf "$plugin_dir.backup"
+        mv "$plugin_dir" "$plugin_dir.backup"
+    fi
+
+    temp_dir=$(mktemp -d)
+    cd "$temp_dir"
+
+    if wget -q "https://github.com/Blahkaey/KodiLauncher/releases/latest/download/KodiLauncher.zip" -O KodiLauncher.zip; then
+        mkdir -p "$plugin_dir"
+        if unzip -q KodiLauncher.zip -d "$plugin_dir"; then
+            log_info "Update successful!"
+            echo "$latest_version" > "/var/lib/kodi/.kodilauncher-version"
+            rm -rf "$plugin_dir.backup"
+        else
+            log_error "Failed to extract plugin"
+            rm -rf "$plugin_dir"
+            [ -d "$plugin_dir.backup" ] && mv "$plugin_dir.backup" "$plugin_dir"
+            exit 1
+        fi
+    else
+        log_error "Download failed"
+        [ -d "$plugin_dir.backup" ] && mv "$plugin_dir.backup" "$plugin_dir"
+        exit 1
+    fi
+
+    chown -R "$main_user:$main_user" "$user_home/homebrew"
+    cd /
+    rm -rf "$temp_dir"
+
+    log_info "KodiLauncher updated to version $latest_version"
+}
+
+main "$@"

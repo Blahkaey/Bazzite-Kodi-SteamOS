@@ -6,6 +6,9 @@ source "/ctx/utility.sh"
 setup_kodi_system_files() {
     log_subsection "Setting up Kodi system configuration"
 
+    cp /ctx/components/system-scripts/update-kodilauncher /usr/bin/
+    chmod +x /usr/bin/update-kodilauncher
+
     # Install udev rules
     cp /ctx/config/udev/99-kodi.rules /usr/lib/udev/rules.d/
 

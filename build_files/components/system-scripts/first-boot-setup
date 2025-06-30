@@ -1,12 +1,9 @@
 #!/bin/bash
-#
-# First Boot Setup
-#
 
 set -euo pipefail
 
-# Marker file to ensure this only runs once
 FIRSTBOOT_MARKER="/var/lib/kodi/.firstboot-complete"
+VERSION_FILE="/var/lib/kodi/.kodilauncher-version"
 
 # Logging
 log_info() {
@@ -17,20 +14,31 @@ log_error() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] KODI-FIRSTBOOT ERROR: $@" | systemd-cat -t kodi-firstboot -p err
 }
 
-# Check if already run
-if [ -f "$FIRSTBOOT_MARKER" ]; then
-    log_info "First boot setup already completed, exiting"
-    exit 0
-fi
+get_latest_version() {
+    local api_url="https://api.github.com/repos/Blahkaey/KodiLauncher/releases/latest"
+    local version=$(curl -s "$api_url" | grep '"tag_name"' | cut -d'"' -f4)
+    echo "$version"
+}
 
-log_info "Starting first boot setup"
+get_installed_version() {
+    if [ -f "$VERSION_FILE" ]; then
+        cat "$VERSION_FILE"
+    else
+        echo "none"
+    fi
+}
 
-
-# Install DeckyLoader plugin
+# Install or update DeckyLoader plugin
 install_deckyloader_plugin() {
-    log_info "Installing DeckyLoader KodiLauncher plugin"
+    local latest_version=$(get_latest_version)
 
-    # Find the main user (first user with UID >= 1000)
+    if [ -z "$latest_version" ]; then
+        log_error "Could not fetch latest version from GitHub"
+        return 1
+    fi
+
+    log_info "Installing/Updating DeckyLoader KodiLauncher plugin (version: $latest_version)"
+
     local main_user=$(getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' | head -1)
 
     if [ -z "$main_user" ]; then
@@ -54,31 +62,62 @@ install_deckyloader_plugin() {
         if unzip -q KodiLauncher.zip -d "$plugin_dir"; then
             log_info "KodiLauncher plugin extracted successfully"
 
+            # Save version
+            echo "$latest_version" > "$VERSION_FILE"
+
             # Fix ownership
             chown -R "$main_user:$main_user" "$user_home/homebrew"
 
-            log_info "DeckyLoader plugin installation completed"
+            log_info "DeckyLoader plugin installation completed (version: $latest_version)"
         else
             log_error "Failed to extract KodiLauncher.zip"
+            return 1
         fi
     else
         log_error "Failed to download KodiLauncher.zip"
+        return 1
     fi
 
-    # Cleanup
     cd /
     rm -rf "$temp_dir"
+
+    return 0
 }
 
-# Main execution
 main() {
-    install_deckyloader_plugin
+    local needs_update=false
 
-    # Create marker file
-    touch "$FIRSTBOOT_MARKER"
-    chown kodi:kodi "$FIRSTBOOT_MARKER"
+    # Check if first boot
+    if [ ! -f "$FIRSTBOOT_MARKER" ]; then
+        log_info "First boot detected"
+        needs_update=true
+    else
+        # Not first boot, check version
+        local installed_version=$(get_installed_version)
+        local latest_version=$(get_latest_version)
 
-    log_info "First boot setup completed successfully"
+        if [ -n "$latest_version" ] && [ "$installed_version" != "$latest_version" ]; then
+            log_info "Version mismatch detected (installed: $installed_version, latest: $latest_version)"
+            needs_update=true
+        else
+            log_info "KodiLauncher is up to date (version: $installed_version)"
+        fi
+    fi
+
+    if [ "$needs_update" = true ]; then
+        if install_deckyloader_plugin; then
+            # Create marker file
+            touch "$FIRSTBOOT_MARKER"
+            chown kodi:kodi "$FIRSTBOOT_MARKER"
+
+            log_info "Setup completed successfully"
+        else
+            log_error "Plugin installation failed"
+            exit 1
+        fi
+    else
+        log_info "No updates needed"
+    fi
 }
 
 # Run main
