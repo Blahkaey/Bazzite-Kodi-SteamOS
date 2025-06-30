@@ -35,6 +35,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check Kodi repository for updates
+        id: check-updates
+        run: |
+          # Get the current commit hash of the Omega branch
+          KODI_COMMIT=$(git ls-remote https://github.com/Blahkaey/xbmc Omega | cut -f1)
+          echo "kodi-commit=$KODI_COMMIT" >> $GITHUB_OUTPUT
+
+          # Also save first 8 characters for shorter cache key
+          echo "kodi-commit-short=${KODI_COMMIT:0:8}" >> $GITHUB_OUTPUT
+
+          echo "Current Kodi repository commit: $KODI_COMMIT"
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -54,6 +66,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-,format=short
             type=raw,value={{date 'YYYYMMDD'}}-{{sha}}
+            type=raw,value=kodi-${{ steps.check-updates.outputs.kodi-commit-short }}
 
       - name: Build and Push Kodi Base
         id: build
@@ -63,8 +76,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=kodi-${{ steps.check-updates.outputs.kodi-commit-short }}
+          cache-to: type=gha,mode=max,scope=kodi-${{ steps.check-updates.outputs.kodi-commit-short }}
           platforms: linux/amd64
 
       - name: Install cosign
