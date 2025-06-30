@@ -5,7 +5,6 @@ set -euo pipefail
 FIRSTBOOT_MARKER="/var/lib/kodi/.firstboot-complete"
 VERSION_FILE="/var/lib/kodi/.kodilauncher-version"
 
-# Logging
 log_info() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] KODI-FIRSTBOOT: $@" | systemd-cat -t kodi-firstboot -p info
 }
@@ -25,6 +24,52 @@ get_installed_version() {
         cat "$VERSION_FILE"
     else
         echo "none"
+    fi
+}
+
+# Install DeckyLoader if not present
+install_deckyloader() {
+    local main_user="$1"
+    local user_home=$(getent passwd "$main_user" | cut -d: -f6)
+
+    # Check if DeckyLoader is already installed (same check as ujust)
+    if [ -d "$user_home/homebrew/plugins" ]; then
+        log_info "DeckyLoader already installed for user $main_user"
+        return 0
+    fi
+
+    log_info "DeckyLoader not found, installing for user $main_user..."
+
+    export SUDO_USER="$main_user"
+    export HOME="$user_home"
+
+    # Create /home/deck symlink if needed
+    if [ ! -L "/home/deck" ] && [ ! -e "/home/deck" ] && [ "$HOME" != "/home/deck" ]; then
+        log_info "Creating /home/deck symlink to fix plugin compatibility"
+        ln -sf "$HOME" /home/deck
+    fi
+
+    log_info "Downloading and running DeckyLoader installer..."
+    if su - "$main_user" -c "curl -L https://github.com/SteamDeckHomebrew/decky-installer/releases/latest/download/install_release.sh | sh" 2>&1 | systemd-cat -t kodi-firstboot -p info; then
+
+        if command -v chcon &> /dev/null; then
+            chcon -R -t bin_t "$user_home/homebrew/services/PluginLoader" 2>/dev/null || true
+        fi
+
+        if [ -d "$user_home/homebrew" ]; then
+            chown -R "$main_user:$main_user" "$user_home/homebrew"
+        fi
+
+        if [ -d "$user_home/homebrew/plugins" ]; then
+            log_info "DeckyLoader installation completed successfully"
+            return 0
+        else
+            log_error "DeckyLoader installation verification failed"
+            return 1
+        fi
+    else
+        log_error "DeckyLoader installation failed"
+        return 1
     fi
 }
 
@@ -51,21 +96,28 @@ install_deckyloader_plugin() {
 
     log_info "Installing plugin for user: $main_user (home: $user_home)"
 
-    # Create plugin directory
+    if ! install_deckyloader "$main_user"; then
+        log_error "Failed to ensure DeckyLoader is installed, cannot proceed with plugin installation"
+        return 1
+    fi
+
     mkdir -p "$plugin_dir"
 
-    # Download and extract plugin
     local temp_dir=$(mktemp -d)
     cd "$temp_dir"
 
     if wget -q "https://github.com/Blahkaey/KodiLauncher/releases/latest/download/KodiLauncher.zip" -O KodiLauncher.zip; then
+        if [ -d "$plugin_dir" ]; then
+            log_info "Removing old KodiLauncher plugin version"
+            rm -rf "$plugin_dir"
+        fi
+
+        mkdir -p "$plugin_dir"
         if unzip -q KodiLauncher.zip -d "$plugin_dir"; then
             log_info "KodiLauncher plugin extracted successfully"
 
-            # Save version
             echo "$latest_version" > "$VERSION_FILE"
 
-            # Fix ownership
             chown -R "$main_user:$main_user" "$user_home/homebrew"
 
             log_info "DeckyLoader plugin installation completed (version: $latest_version)"
@@ -120,5 +172,4 @@ main() {
     fi
 }
 
-# Run main
 main
