@@ -11,7 +11,7 @@ install_firstboot_setup() {
     chmod +x /usr/bin/first-boot-setup
 
     # Install systemd service
-    cp /ctx/config/systemd/kodi-firstboot.service /usr/lib/systemd/system/
+    cp /ctx/config/systemd/firstboot.service /usr/lib/systemd/system/
 
     # Enable the service
     systemctl enable firstboot.service

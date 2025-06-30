@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # Marker file to ensure this only runs once
-FIRSTBOOT_MARKER="/var/lib/kodi/.kodi-firstboot-complete"
+FIRSTBOOT_MARKER="/var/lib/kodi/.firstboot-complete"
 
 # Logging
 log_info() {
